@@ -1,0 +1,13 @@
+# Web server
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# Local STT (CTranslate2 backend; no torch, no cloud STT)
+faster-whisper>=1.0.3
+
+# Numerics / audio
+numpy>=1.26.0
+
+# WebSocket client for tools/feed_wav.py (test mode). uvicorn[standard] already
+# pulls websockets, but only >=10.4; websockets.sync landed in 12.
+websockets>=12.0

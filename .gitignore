@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-*/
+*.egg-info/
+
+# Env / secrets / deployment-local config
+*.env
+!meetcfg.env.example
+
+# Whisper model cache (downloaded on first run, lives in ~/.cache/huggingface)
+
+# Logs
+*.log
+*.local.sh
+
+# Contexto comercial real (estratégia interna — use sales_context.example.md como modelo)
+sales_context.md

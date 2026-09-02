@@ -1,0 +1,246 @@
+// Capture mic + meeting-tab audio, downsample via the worklet, stream 16 kHz
+// PCM to the backend over two WebSockets, and show the latest orientation.
+//
+// Adapted from live-meeting-assistant's app.js (MIT, Ben Linford): the
+// capture/reconnect path is kept as-is; export, pinning, enrollment, the
+// mode/party toggles and the card grid were removed.
+
+const $ = (id) => document.getElementById(id);
+const transcriptEl = $("transcript");
+const statusEl = $("status");
+
+let audioCtx = null;
+const sources = {};       // name -> { stream, node, srcNode, ws, ... }
+// One meeting per page load, unless ?meeting=<id> pins it — which is how the
+// test mode (tools/inject_transcript.py --meeting test) drives this page.
+const meetingId = new URLSearchParams(location.search).get("meeting") || crypto.randomUUID();
+const lineEls = {};       // transcript line id -> DOM element (echo retraction)
+let copilotWs = null;
+
+function setStatus(msg) { statusEl.textContent = msg; }
+
+function wsUrl(path, params) {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const q = new URLSearchParams({ ...params, meeting: meetingId });
+  return `${proto}://${location.host}${path}?${q}`;
+}
+
+async function ensureContext() {
+  if (audioCtx) return audioCtx;
+  audioCtx = new AudioContext();
+  await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js");
+  return audioCtx;
+}
+
+function makeAudioWs(name) {
+  const ws = new WebSocket(wsUrl("/ws/audio", { source: name }));
+  ws.binaryType = "arraybuffer";
+  return ws;
+}
+
+// Wire one MediaStream's audio into the worklet -> WS pipeline.
+async function startSource(name, stream) {
+  const ctx = await ensureContext();
+  if (ctx.state === "suspended") await ctx.resume();
+
+  const ws = makeAudioWs(name);
+  ws.onopen = () => setStatus(`capturando: ${activeNames().join(" + ")}`);
+  ws.onclose = () => scheduleReconnect(name);
+  ws.onerror = () => setStatus(`erro de websocket (${name})`);
+
+  const srcNode = ctx.createMediaStreamSource(stream);
+  const worklet = new AudioWorkletNode(ctx, "pcm-worklet");
+  worklet.port.onmessage = (ev) => {
+    // Look the socket up each time: reconnects swap it out under us.
+    const s = sources[name];
+    if (s && s.ws.readyState === WebSocket.OPEN) s.ws.send(ev.data);
+  };
+  srcNode.connect(worklet);
+  // Do NOT connect to destination — we don't want to play the audio back.
+
+  sources[name] = { stream, node: worklet, srcNode, ws, userStopped: false, reconnecting: false };
+}
+
+// The backend dropped (e.g. watchdog self-restart). The media stream is still
+// alive in this page, so keep it and re-attach when the server comes back.
+function scheduleReconnect(name) {
+  const s = sources[name];
+  if (!s || s.userStopped || s.reconnecting) return;
+  s.reconnecting = true;
+  setStatus("backend caiu — reconectando… (a captura continua)");
+  const attempt = () => {
+    if (!sources[name] || s.userStopped) return;
+    const nw = makeAudioWs(name);
+    nw.onopen = () => {
+      s.ws = nw;
+      s.reconnecting = false;
+      nw.onclose = () => scheduleReconnect(name);
+      setStatus(`reconectado — capturando: ${activeNames().join(" + ")}`);
+      connectCopilot();
+    };
+    nw.onclose = () => { if (s.reconnecting) setTimeout(attempt, 3000); };
+    nw.onerror = () => {};
+  };
+  attempt();
+}
+
+function activeNames() { return Object.keys(sources); }
+
+function stopSource(name) {
+  const s = sources[name];
+  if (!s) return;
+  s.userStopped = true;
+  try { s.srcNode.disconnect(); } catch {}
+  try { s.node.disconnect(); } catch {}
+  try { s.stream.getTracks().forEach((t) => t.stop()); } catch {}
+  try { if (s.ws.readyState === WebSocket.OPEN) s.ws.close(); } catch {}
+  delete sources[name];
+  if (activeNames().length === 0) {
+    setStatus("parado");
+    $("startBtn").disabled = false;
+    $("stopBtn").disabled = true;
+  }
+}
+
+async function start() {
+  // Browsers expose mic/screen capture only in secure contexts. In WSL that
+  // means reaching the backend as http://localhost:5005 from Windows Chrome.
+  if (!navigator.mediaDevices) {
+    setStatus("captura bloqueada: abra esta página como http://localhost:5005");
+    return;
+  }
+  $("startBtn").disabled = true;
+  const wantMic = $("micToggle").checked;
+  const wantSys = $("sysToggle").checked;
+  if (!wantMic && !wantSys) {
+    setStatus("marque pelo menos uma fonte de áudio");
+    $("startBtn").disabled = false;
+    return;
+  }
+
+  connectCopilot();
+  try {
+    if (wantMic) {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+      });
+      await startSource("mic", mic);
+    }
+    if (wantSys) {
+      // Browsers require a video track to grant tab audio; we capture it and
+      // immediately drop the video, keeping only the audio.
+      setStatus("escolha a aba do Meet e MARQUE 'compartilhar áudio'…");
+      const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      disp.getVideoTracks().forEach((t) => t.stop());
+      if (disp.getAudioTracks().length === 0) {
+        setStatus("nenhum áudio capturado — recompartilhe e marque 'compartilhar áudio'");
+        disp.getTracks().forEach((t) => t.stop());
+      } else {
+        await startSource("system", disp);
+      }
+    }
+    $("stopBtn").disabled = false;
+  } catch (err) {
+    console.error(err);
+    setStatus("erro na captura: " + err.message);
+    $("startBtn").disabled = false;
+  }
+}
+
+function stop() { activeNames().forEach((n) => stopSource(n)); }
+
+// --- transcript ---
+function addLine(msg) {
+  const text = (msg.text || "").trim();
+  if (!text) return;
+  if (msg.id !== undefined && lineEls[msg.id]) return; // audio ws + broadcast both deliver
+  const line = document.createElement("div");
+  line.className = "line " + (msg.source === "mic" ? "me" : "other");
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = msg.source === "mic" ? "Tiago" : "Lead";
+  const body = document.createElement("span");
+  body.className = "body";
+  body.textContent = text;
+  line.append(who, body);
+  if (msg.id !== undefined) lineEls[msg.id] = line;
+  transcriptEl.appendChild(line);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  // keep the DOM bounded — nothing here is meant to be a permanent record
+  while (transcriptEl.children.length > 200) transcriptEl.removeChild(transcriptEl.firstChild);
+}
+
+// The server retracts a mic line when it turns out to be echo of a lead line.
+function retractLine(id) {
+  const el = lineEls[id];
+  if (el) { el.remove(); delete lineEls[id]; }
+}
+
+// --- copilot ---
+function connectCopilot() {
+  if (copilotWs && (copilotWs.readyState === WebSocket.OPEN || copilotWs.readyState === WebSocket.CONNECTING)) return;
+  copilotWs = new WebSocket(wsUrl("/ws/copilot", {}));
+  copilotWs.onopen = () => { $("adviseBtn").disabled = false; };
+  copilotWs.onclose = () => {
+    $("adviseBtn").disabled = true;
+    setCopilotStatus("");
+    if (activeNames().length > 0) setTimeout(connectCopilot, 3000);
+  };
+  copilotWs.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "advice") renderAdvice(msg);
+    else if (msg.type === "transcript") addLine(msg);
+    else if (msg.type === "retract") retractLine(msg.id);
+    else if (msg.type === "copilot_status") {
+      if (msg.state === "thinking") setCopilotStatus("pensando…", true);
+      else if (msg.state === "error") setCopilotStatus("erro: " + (msg.msg || "falhou"));
+      else if (msg.state === "silent") {
+        // "--": nothing to add. The previous orientation stays, just dimmed.
+        $("advice").classList.add("stale");
+        setCopilotStatus(`sem intervenção · ${msg.at || ""}`);
+      } else {
+        setCopilotStatus(msg.last_ms ? `pronto · última ${(msg.last_ms / 1000).toFixed(1)}s` : "pronto");
+      }
+    }
+  };
+}
+
+function setCopilotStatus(text, pulsing = false) {
+  const el = $("copilotStatus");
+  el.textContent = text;
+  el.classList.toggle("pulsing", pulsing);
+}
+
+// Only ever ONE orientation on screen: the latest replaces the previous.
+function renderAdvice(msg) {
+  const panel = $("advice");
+  panel.className = "advice";
+  panel.textContent = "";
+  const rows = [["SINAL", msg.sinal, "sinal"], ["FAÇA", msg.faca, "faca"], ["DIGA", msg.diga, "diga"]];
+  for (const [label, value, cls] of rows) {
+    if (!value) continue;
+    const row = document.createElement("div");
+    row.className = `advice-row row-${cls}`;
+    const l = document.createElement("div");
+    l.className = "advice-label";
+    l.textContent = label;
+    const t = document.createElement("div");
+    t.className = "advice-text";
+    t.textContent = cls === "diga" ? `“${value}”` : value;
+    row.append(l, t);
+    panel.appendChild(row);
+  }
+  $("adviceMeta").textContent =
+    `${msg.at || ""}${msg.elapsed_ms ? ` · ${(msg.elapsed_ms / 1000).toFixed(1)}s` : ""}${msg.replay ? " · (anterior)" : ""}`;
+}
+
+$("startBtn").onclick = start;
+$("stopBtn").onclick = stop;
+$("adviseBtn").onclick = () => {
+  if (copilotWs && copilotWs.readyState === WebSocket.OPEN) {
+    copilotWs.send(JSON.stringify({ type: "advise_now" }));
+  }
+};
+// Connect on load so the test mode (tools/inject_transcript.py) can drive the
+// page without anyone clicking Iniciar.
+connectCopilot();

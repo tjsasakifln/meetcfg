@@ -1,0 +1,86 @@
+/* Adapted from live-meeting-assistant's style.css (MIT, Ben Linford):
+   the card/pin/settings styling was replaced by one large advice panel. */
+:root {
+  --bg: #0f1115;
+  --panel: #181b22;
+  --line: #232733;
+  --text: #e6e8ee;
+  --muted: #8b91a0;
+  --me: #4aa3ff;
+  --other: #ffb454;
+  --accent: #5ad19a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header { padding: 10px 18px; border-bottom: 1px solid var(--line); }
+.controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.controls label { font-size: 14px; color: var(--muted); }
+.brand { letter-spacing: .04em; color: var(--accent); }
+
+button {
+  background: var(--accent); color: #06241a; border: 0; border-radius: 6px;
+  padding: 6px 16px; font-weight: 600; cursor: pointer;
+}
+button:disabled { opacity: .4; cursor: default; }
+#stopBtn { background: #e5616b; color: #2a0a0d; }
+button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+
+.status { font-size: 13px; color: var(--accent); margin-left: auto; }
+.copilot-status { font-size: 12px; color: var(--muted); }
+.copilot-status.pulsing { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* The whole point of the screen: one orientation, readable from a glance. */
+.advice-panel {
+  flex: 1 1 62%;
+  min-height: 0;
+  padding: 22px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 1px solid var(--line);
+  overflow-y: auto;
+}
+.advice.empty { color: var(--muted); font-size: 17px; font-style: italic; }
+.advice-row { display: flex; gap: 14px; align-items: baseline; margin-bottom: 14px; }
+.advice-row:last-child { margin-bottom: 0; }
+.advice-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .1em;
+  min-width: 62px; text-align: right; padding-top: 6px;
+}
+.row-sinal .advice-label { color: var(--other); }
+.row-faca  .advice-label { color: var(--me); }
+.row-diga  .advice-label { color: var(--accent); }
+.advice-text { flex: 1; line-height: 1.35; }
+.row-sinal .advice-text { font-size: 20px; color: #c3c8d4; }
+.row-faca  .advice-text { font-size: 26px; font-weight: 600; }
+.row-diga  .advice-text {
+  font-size: 30px; font-weight: 700; color: var(--accent); line-height: 1.25;
+}
+.advice-meta { font-size: 12px; color: var(--muted); margin-top: 18px; }
+.advice.stale { opacity: .55; }
+
+.panel { background: var(--panel); padding: 12px 18px; overflow: hidden; display: flex; flex-direction: column; flex: 1 1 38%; min-height: 0; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.transcript { overflow-y: auto; flex: 1; line-height: 1.5; font-size: 14px; }
+.line { margin: 0 0 8px; display: flex; gap: 8px; }
+.line .who { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 10px; height: fit-content; white-space: nowrap; }
+.line.me .who { background: rgba(74,163,255,.15); color: var(--me); }
+.line.other .who { background: rgba(255,180,84,.15); color: var(--other); }
+.line .body { flex: 1; }
+
+footer { padding: 8px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+footer strong { color: var(--text); }

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>meetcfg — copiloto comercial CONFENGE</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="controls">
+      <strong class="brand">meetcfg</strong>
+      <label><input type="checkbox" id="micToggle" checked /> Meu microfone</label>
+      <label><input type="checkbox" id="sysToggle" checked /> Áudio da reunião (lead)</label>
+      <button id="startBtn">Iniciar</button>
+      <button id="stopBtn" disabled>Parar</button>
+      <button id="adviseBtn" class="ghost" disabled>Orientar agora</button>
+      <span id="copilotStatus" class="copilot-status"></span>
+      <span id="status" class="status">parado</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="advice-panel">
+      <div id="advice" class="advice empty">
+        Clique em <strong>Iniciar</strong>. A orientação aparece aqui quando o lead
+        disser algo que peça intervenção.
+      </div>
+      <div id="adviceMeta" class="advice-meta"></div>
+    </section>
+    <section class="panel">
+      <h2>Transcrição</h2>
+      <div id="transcript" class="transcript"></div>
+    </section>
+  </main>
+
+  <footer>
+    Para capturar o lead: clique <strong>Iniciar</strong> e, na janela de
+    compartilhamento, escolha a aba do Google Meet e
+    <strong>marque “Compartilhar áudio da guia”</strong>. Use fones de ouvido.
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
