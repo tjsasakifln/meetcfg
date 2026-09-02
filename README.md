@@ -146,6 +146,10 @@ texto livre para posicionamento, o JSON para o lead.
 SALES_CONTEXT_V1_PATH=leads/marajoara.json   # em meetcfg.env
 ```
 
+`run.sh` dá `source` no `meetcfg.env` depois de subir: se a linha estiver lá,
+ela ganha de qualquer valor passado na linha de comando. Trocando de lead com
+frequência, deixe a linha comentada e passe pelo ambiente.
+
 Vazio (o padrão) é modo manual: o copiloto roda só com o `sales_context.md`, como
 sempre rodou. Contexto inválido também cai em modo manual — o motivo aparece no
 log e o documento é descartado inteiro, nunca pela metade. Modelos válidos em
