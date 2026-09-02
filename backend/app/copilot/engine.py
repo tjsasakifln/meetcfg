@@ -144,7 +144,9 @@ class CopilotEngine:
                     if self._new_chars() < settings.suggest_min_new_chars:
                         return
                 self._force = False
-                await self._run_once()
+                ok = await self._run_once()
+                if not ok:
+                    return  # LLM failed; _consumed is intact, next poke retries
                 if self._new_chars() < settings.suggest_min_new_chars and not self._force:
                     return
         except asyncio.CancelledError:
@@ -152,10 +154,11 @@ class CopilotEngine:
         except Exception:  # noqa: BLE001 - engine must never take the app down
             log.exception("copilot loop crashed; will restart on next poke")
 
-    async def _run_once(self) -> None:
+    async def _run_once(self) -> bool:
+        """Run one round. Returns False on LLM failure (caller stops the loop
+        without touching _consumed, so the backlog survives for the next poke)."""
         self._last_run_t = time.monotonic()
         snapshot = list(self.session.lines)
-        self._consumed = sum(len(l.text) for l in snapshot if l.source == "system")
         prompt = self._build_prompt(snapshot)
         await self.session.broadcast({"type": "copilot_status", "state": "thinking"})
         t0 = time.monotonic()
@@ -166,7 +169,8 @@ class CopilotEngine:
             await self.session.broadcast({
                 "type": "copilot_status", "state": "error", "msg": str(e)[:200],
             })
-            return
+            return False
+        self._consumed = sum(len(l.text) for l in snapshot if l.source == "system")
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         advice = parse_advice(result)
         if advice is None:
@@ -175,7 +179,7 @@ class CopilotEngine:
                 "type": "copilot_status", "state": "silent", "last_ms": elapsed_ms,
                 "at": dt.datetime.now().strftime("%H:%M:%S"),
             })
-            return
+            return True
         self._last_advice_text = " / ".join(v for v in advice.values() if v)
         payload = {
             "type": "advice",
@@ -189,6 +193,7 @@ class CopilotEngine:
         await self.session.broadcast({
             "type": "copilot_status", "state": "idle", "last_ms": elapsed_ms,
         })
+        return True
 
     # -- prompt --------------------------------------------------------------
     def _build_prompt(self, lines) -> str:

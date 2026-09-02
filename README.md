@@ -136,7 +136,7 @@ Tudo em `meetcfg.env` (veja `meetcfg.env.example`). Os que importam:
 | Variável | Padrão | Para quê |
 | --- | --- | --- |
 | `SUGGEST_MIN_INTERVAL_S` | `15` | intervalo mínimo entre chamadas ao Codex |
-| `SUGGEST_MIN_NEW_CHARS` | `80` | quanta fala **nova do lead** dispara uma rodada |
+| `SUGGEST_MIN_NEW_CHARS` | `20` | quanta fala **nova do lead** dispara uma rodada |
 | `SUGGEST_TRANSCRIPT_CHARS` | `2500` | tamanho do trecho recente enviado (~60–120 s) |
 | `WHISPER_MODEL` | `small` | `base` é mais rápido e pior; `medium` o inverso |
 | `WHISPER_DEVICE` | `cpu` | `cuda` se você tiver GPU NVIDIA no WSL |

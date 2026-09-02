@@ -48,7 +48,7 @@ FIELDS: list[Field] = [
     Field("suggest_enabled", "SUGGEST_ENABLED", bool, True),
     Field("suggest_min_interval_s", "SUGGEST_MIN_INTERVAL_S", float, 15.0),
     # only NEW speech from the lead counts toward this threshold
-    Field("suggest_min_new_chars", "SUGGEST_MIN_NEW_CHARS", int, 80),
+    Field("suggest_min_new_chars", "SUGGEST_MIN_NEW_CHARS", int, 20),
     # rolling window handed to the model (~60-120s of talk)
     Field("suggest_transcript_chars", "SUGGEST_TRANSCRIPT_CHARS", int, 2500),
     # echo suppression (lead's voice leaking from speakers into the mic)

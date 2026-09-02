@@ -27,8 +27,17 @@ function wsUrl(path, params) {
 
 async function ensureContext() {
   if (audioCtx) return audioCtx;
-  audioCtx = new AudioContext();
-  await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js");
+  // Don't cache until the worklet module is actually loaded — caching a
+  // context whose addModule() failed would make every later retry throw on
+  // `new AudioWorkletNode(...)` forever, with no way to recover but reload.
+  const ctx = new AudioContext();
+  try {
+    await ctx.audioWorklet.addModule("/static/pcm-worklet.js");
+  } catch (err) {
+    ctx.close();
+    throw err;
+  }
+  audioCtx = ctx;
   return audioCtx;
 }
 
@@ -40,25 +49,32 @@ function makeAudioWs(name) {
 
 // Wire one MediaStream's audio into the worklet -> WS pipeline.
 async function startSource(name, stream) {
-  const ctx = await ensureContext();
-  if (ctx.state === "suspended") await ctx.resume();
+  try {
+    const ctx = await ensureContext();
+    if (ctx.state === "suspended") await ctx.resume();
 
-  const ws = makeAudioWs(name);
-  ws.onopen = () => setStatus(`capturando: ${activeNames().join(" + ")}`);
-  ws.onclose = () => scheduleReconnect(name);
-  ws.onerror = () => setStatus(`erro de websocket (${name})`);
+    const ws = makeAudioWs(name);
+    ws.onopen = () => setStatus(`capturando: ${activeNames().join(" + ")}`);
+    ws.onclose = () => scheduleReconnect(name);
+    ws.onerror = () => setStatus(`erro de websocket (${name})`);
 
-  const srcNode = ctx.createMediaStreamSource(stream);
-  const worklet = new AudioWorkletNode(ctx, "pcm-worklet");
-  worklet.port.onmessage = (ev) => {
-    // Look the socket up each time: reconnects swap it out under us.
-    const s = sources[name];
-    if (s && s.ws.readyState === WebSocket.OPEN) s.ws.send(ev.data);
-  };
-  srcNode.connect(worklet);
-  // Do NOT connect to destination — we don't want to play the audio back.
+    const srcNode = ctx.createMediaStreamSource(stream);
+    const worklet = new AudioWorkletNode(ctx, "pcm-worklet");
+    worklet.port.onmessage = (ev) => {
+      // Look the socket up each time: reconnects swap it out under us.
+      const s = sources[name];
+      if (s && s.ws.readyState === WebSocket.OPEN) s.ws.send(ev.data);
+    };
+    srcNode.connect(worklet);
+    // Do NOT connect to destination — we don't want to play the audio back.
 
-  sources[name] = { stream, node: worklet, srcNode, ws, userStopped: false, reconnecting: false };
+    sources[name] = { stream, node: worklet, srcNode, ws, userStopped: false, reconnecting: false };
+  } catch (err) {
+    // Not registered in `sources` yet, so stop()'s cleanup can't reach this
+    // stream's tracks — stop them here or the mic/tab-share stays hot.
+    try { stream.getTracks().forEach((t) => t.stop()); } catch {}
+    throw err;
+  }
 }
 
 // The backend dropped (e.g. watchdog self-restart). The media stream is still
@@ -142,6 +158,12 @@ async function start() {
     $("stopBtn").disabled = false;
   } catch (err) {
     console.error(err);
+    // Any source already wired up (e.g. mic succeeded, tab-share was
+    // cancelled) must be torn down here — otherwise a retry opens a second
+    // stream/worklet/websocket on top of the still-live one. Do this before
+    // setStatus: stopSource() itself sets status to "parado" once the last
+    // source is gone, which would otherwise clobber the error message below.
+    stop();
     setStatus("erro na captura: " + err.message);
     $("startBtn").disabled = false;
   }
