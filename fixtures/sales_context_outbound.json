@@ -1,0 +1,66 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "acquisition_channel": "OUTBOUND_FIRST_TOUCH",
+  "company": {
+    "name": "Construtora Marajoara Engenharia",
+    "cnpj": "11.222.333/0001-44"
+  },
+  "intent": {
+    "kind": "respondeu email frio",
+    "reply_reason": "respondeu pedindo 'como funciona esse acompanhamento de licitação' depois do segundo email"
+  },
+  "engagement": {
+    "type": "LICITACAO",
+    "detail": "nunca contratou a CONFENGE; conversa é o primeiro contato com voz"
+  },
+  "public_facts": [
+    "Construtora de médio porte em Belém/PA, cerca de 12 anos de operação",
+    "Habilitada no SICAF desde 2021, situação regular na última consulta pública",
+    "Participou de 4 pregões eletrônicos de obra pública em 2025 segundo o Portal Nacional de Contratações Públicas",
+    "Quadro técnico com 2 engenheiros civis registrados no CREA-PA"
+  ],
+  "opportunities": [
+    "Hipótese a validar na chamada: perdeu por habilitação/documentação e não por preço — é o que a CONFENGE conserta primeiro",
+    "Não tem ninguém dedicado a acompanhar editais; hoje o sócio olha os editais no fim do dia",
+    "Obras privadas caindo na região: entrar em obra pública deixa de ser opcional em 2026"
+  ],
+  "touchpoints": [
+    {
+      "at": "2026-08-04",
+      "channel": "email",
+      "summary": "primeiro email frio — assunto sobre desclassificação por documentação em pregão",
+      "delivered": null
+    },
+    {
+      "at": "2026-08-19",
+      "channel": "email",
+      "summary": "follow-up citando dois editais abertos no estado; foi este que ele respondeu",
+      "delivered": null
+    }
+  ],
+  "evidence": [
+    "PNCP — histórico de participação em pregões 2025, consultado em 2026-08-28",
+    "SICAF — consulta pública de situação do fornecedor, 2026-08-28",
+    "Site institucional da construtora, seção Obras"
+  ],
+  "limits": [
+    "Não afirme o motivo pelo qual ele perdeu os pregões — a causa não foi verificada, só o resultado",
+    "Não afirme faturamento, número de funcionários nem porte financeiro: nada disso é público",
+    "Não afirme que ele está insatisfeito com fornecedor atual — não se sabe se existe um"
+  ],
+  "offer": {
+    "current": null,
+    "next_state": "agendar o diagnóstico de habilitação de 60 minutos com o sócio técnico, com data marcada ainda nesta chamada"
+  },
+  "source_as_of": "2026-08-28",
+  "provenance": "pesquisa em fontes públicas (PNCP, SICAF, site institucional) + histórico da própria sequência de email",
+  "claim_safety": {
+    "never_assert": [
+      "Não diga que a CONFENGE já trabalhou com empresas dele em Belém sem citar caso nominal autorizado"
+    ],
+    "safe_to_reference": [
+      "Os dois editais citados no email de 19/08 estão abertos e são públicos",
+      "A regularidade dele no SICAF é consulta pública, pode ser mencionada"
+    ]
+  }
+}

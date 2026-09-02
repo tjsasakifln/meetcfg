@@ -1,0 +1,72 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "acquisition_channel": "INBOUND_LIVE",
+  "company": {
+    "name": "Vertice Obras e Infraestrutura Ltda",
+    "cnpj": "44.555.666/0001-07"
+  },
+  "intent": {
+    "kind": "levantou a mão em webinar",
+    "reply_reason": "pediu a chamada no formulário do webinar escrevendo 'quero entender o acompanhamento de licitação no dia a dia, já assisti o material'"
+  },
+  "engagement": {
+    "type": "ATIVO",
+    "detail": "já consome conteúdo da CONFENGE há uns dois meses; chega sabendo o que a gente faz"
+  },
+  "public_facts": [
+    "Empreiteira de infraestrutura urbana no interior de São Paulo, cerca de 40 funcionários segundo o site",
+    "Executa contrato municipal de drenagem em vigência, informação do portal de transparência da prefeitura",
+    "Certificação ISO 9001 anunciada no site institucional em 2024"
+  ],
+  "opportunities": [
+    "Contrato municipal atual vence em 2026 — a renovação/nova licitação é a janela concreta",
+    "Quer sair de licitação municipal para estadual, onde a exigência de habilitação é mais dura",
+    "Já entende o produto: a conversa pode ir direto para escopo, prazo e preço"
+  ],
+  "touchpoints": [
+    {
+      "at": "2026-07-15",
+      "channel": "webinar",
+      "summary": "assistiu o webinar 'Por que boas construtoras são desclassificadas antes do preço' até o fim",
+      "delivered": "a apresentação institucional completa da CONFENGE e o método de habilitação em 4 etapas"
+    },
+    {
+      "at": "2026-08-02",
+      "channel": "email",
+      "summary": "baixou o checklist de habilitação e abriu os três emails da sequência pós-webinar",
+      "delivered": "checklist de habilitação em PDF e os cases resumidos de dois clientes"
+    },
+    {
+      "at": "2026-08-26",
+      "channel": "formulario",
+      "summary": "preencheu o formulário pedindo a conversa, marcando 'decisor' e 'tenho licitação nos próximos 90 dias'",
+      "delivered": null
+    }
+  ],
+  "evidence": [
+    "Registro de presença e tempo assistido do webinar de 15/07",
+    "Portal da transparência da prefeitura — contrato de drenagem vigente, consultado em 2026-08-27",
+    "Site institucional, páginas Sobre e Certificações"
+  ],
+  "limits": [
+    "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública",
+    "Não afirme que ele já foi desclassificado alguma vez: ele nunca disse isso, é só o tema do webinar que ele assistiu",
+    "Não trate 'decisor' marcado no formulário como comitê de compra confirmado"
+  ],
+  "offer": {
+    "current": "acompanhamento de licitação, contrato anual — foi o que a sequência pós-webinar apresentou",
+    "next_state": "fechar o escopo do primeiro ciclo e sair da chamada com a proposta datada para a licitação estadual dos próximos 90 dias"
+  },
+  "source_as_of": "2026-08-27",
+  "provenance": "formulário de inscrição do webinar + engajamento na sequência de email + consulta ao portal da transparência municipal",
+  "claim_safety": {
+    "never_assert": [
+      "Não repita a apresentação institucional nem o método em 4 etapas: ele já viu os dois no webinar",
+      "Não afirme prazo de resultado em número de dias — a CONFENGE não garante prazo de homologação"
+    ],
+    "safe_to_reference": [
+      "Ele assistiu o webinar de 15/07 e baixou o checklist — pode citar como referência comum",
+      "A vigência do contrato municipal de drenagem é informação pública"
+    ]
+  }
+}

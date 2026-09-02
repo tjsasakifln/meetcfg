@@ -125,9 +125,80 @@ de Voz do Windows** e salve/converta para `.wav`. Não precisa de ffmpeg.
 .venv/bin/python backend/tools/parse_selftest.py     # formato SINAL/FAÇA/DIGA e "--"
 .venv/bin/python backend/tools/echo_selftest.py      # supressão de eco mic↔lead
 .venv/bin/python backend/tools/watchdog_selftest.py  # watchdog de transcrição travada
+.venv/bin/python backend/tools/context_selftest.py   # validação do contexto estruturado
 ```
 
 Nenhum deles chama o Codex nem carrega o whisper — rodam em segundos.
+
+## Contexto estruturado por lead (opcional)
+
+`sales_context.md` é a estratégia geral: quem é a CONFENGE, como orientar, o que
+detectar. Ele não sabe **quem** está do outro lado da chamada de hoje, nem de que
+canal essa pessoa veio.
+
+`CONFENGE_SALES_CONTEXT/1.0` é um JSON por lead que cobre isso: canal de
+aquisição (outbound frio, inbound que levantou a mão, indicação de parceiro…),
+empresa, motivo da conversa, fatos públicos, o que o lead **já recebeu** e — o
+mais importante — o que **não pode ser afirmado** sobre ele. Os dois convivem: o
+texto livre para posicionamento, o JSON para o lead.
+
+```bash
+SALES_CONTEXT_V1_PATH=leads/marajoara.json   # em meetcfg.env
+```
+
+Vazio (o padrão) é modo manual: o copiloto roda só com o `sales_context.md`, como
+sempre rodou. Contexto inválido também cai em modo manual — o motivo aparece no
+log e o documento é descartado inteiro, nunca pela metade. Modelos válidos em
+[`fixtures/`](fixtures/).
+
+**Antes da chamada** — briefing de 8 seções, determinístico, sem Codex e sem
+backend rodando:
+
+```bash
+.venv/bin/python tools/pre_call_brief.py --file fixtures/sales_context_inbound.json
+```
+
+**Depois da chamada** — desfecho, objeções, compromissos, próxima ação, fatos
+novos não verificados e um follow-up curto. Só sob comando explícito, com o
+backend ainda de pé (a transcrição só existe na memória dele):
+
+```bash
+.venv/bin/python tools/post_call_report.py --meeting test
+```
+
+Uma chamada ao Codex, depois que a reunião acabou — não mexe na latência ao vivo.
+Nada é gravado: redirecione a saída se quiser guardar.
+
+### Ensaio de ponta a ponta (sem áudio, sem navegador)
+
+Roda a chamada inteira contra o Codex de verdade: briefing, orientação ao vivo e
+relatório. Troque a fixture para ensaiar o outro canal.
+
+```bash
+# 1. sobe o backend já apontado para o lead da vez
+SALES_CONTEXT_V1_PATH=fixtures/sales_context_outbound.json ./backend/run.sh
+
+# 2. briefing antes de discar (noutro terminal)
+.venv/bin/python tools/pre_call_brief.py --file fixtures/sales_context_outbound.json
+
+# 3. a conversa, no ritmo real — o copiloto dispara sozinho a cada 15s
+.venv/bin/python tools/inject_transcript.py --meeting outbound_demo \
+  --file minha_conversa.txt --delay 5
+
+# 4. uma fala avulsa, quando quiser testar um momento específico
+curl -s -X POST http://127.0.0.1:5005/api/inject -H 'Content-Type: application/json' \
+  -d '{"meeting":"outbound_demo","source":"system","text":"preciso do meu sócio junto"}'
+
+# 5. relatório do pós-chamada
+.venv/bin/python tools/post_call_report.py --meeting outbound_demo
+```
+
+`source` é `system` para o lead e `mic` para o Tiago. A orientação sai no log do
+backend e em `ws://localhost:5005/ws/copilot?meeting=outbound_demo` — abrir
+`http://localhost:5005/?meeting=outbound_demo` mostra a mesma coisa. Para forçar
+uma rodada sem esperar a cadência, mande `{"type":"advise_now"}` nesse WebSocket.
+O arquivo de contexto é relido a cada rodada: dá para trocar de lead sem
+reiniciar.
 
 ## Configuração
 

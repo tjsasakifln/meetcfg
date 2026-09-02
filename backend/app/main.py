@@ -185,3 +185,20 @@ async def api_inject(line: InjectLine) -> dict:
             "id": line_id, "t0": 0, "t1": 0,
         })
     return {"action": action, "id": line_id, "retract": retract_id}
+
+
+class PostCallRequest(BaseModel):
+    meeting: str = "default"
+
+
+@app.post("/api/postcall")
+async def api_postcall(req: PostCallRequest) -> dict:
+    """Relatório do pós-chamada — só sob ação explícita, nunca automático.
+
+    Precisa rodar aqui porque a transcrição só existe na memória desta sessão.
+    Nada é gravado em disco nem enviado a lugar nenhum: o relatório volta nesta
+    resposta e quem quiser guardar, guarda.
+    """
+    from .copilot.postcall import generate_post_call_report
+    session = _session_for_id(req.meeting)
+    return await generate_post_call_report(session)

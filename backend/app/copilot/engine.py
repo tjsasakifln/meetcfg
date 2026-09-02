@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ..config import settings
 from ..llm import LLMError, generate, provider_name
+from .context import load_sales_context_v1, render_for_prompt
 
 log = logging.getLogger("meetcfg.copilot")
 
@@ -47,7 +48,11 @@ relevante agora, responda APENAS com dois traços:
 --
 
 Nunca escreva nada fora desse formato. Sem markdown, sem preâmbulo, sem explicação, \
-sem alternativas. Não invente fatos sobre o lead ou a empresa dele."""
+sem alternativas. Não invente fatos sobre o lead ou a empresa dele.
+
+Havendo contexto estruturado do lead: a lista NÃO AFIRME é limite duro, nunca a \
+contradiga nem como hipótese; e o que os pontos de contato dizem que ele já recebeu \
+não se vende de novo — quem já viu a apresentação não precisa dela outra vez."""
 
 
 def load_sales_context() -> str:
@@ -61,6 +66,23 @@ def load_sales_context() -> str:
     except OSError as e:
         log.warning("sales context unreadable (%s): %s", path, e)
         return ""
+
+
+def load_structured_context() -> dict | None:
+    """Optional per-lead dossier (CONFENGE_SALES_CONTEXT/1.0), or None.
+
+    Not configured, unreadable or invalid all collapse to None on purpose: a
+    broken dossier must never break "modo manual" — the free-text context alone
+    is a complete, supported setup. The loader already logged the reason.
+    """
+    raw = settings.sales_context_v1_path
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    ctx, _reason = load_sales_context_v1(path)
+    return ctx
 
 
 def build_system_prompt() -> str:
@@ -202,6 +224,12 @@ class CopilotEngine:
         if context:
             parts.append("CONTEXTO COMERCIAL (fixo):")
             parts.append(context)
+        # Both files coexist: the free text carries positioning/strategy, this
+        # one carries the specific lead in front of Tiago right now.
+        lead = load_structured_context()
+        if lead is not None:
+            parts.append("\nCONTEXTO ESTRUTURADO DESTE LEAD (CONFENGE_SALES_CONTEXT/1.0):")
+            parts.append(render_for_prompt(lead))
         # Rolling tail, most recent last, bounded by char budget (~60-120s).
         budget = settings.suggest_transcript_chars
         used = 0

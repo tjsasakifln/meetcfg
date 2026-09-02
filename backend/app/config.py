@@ -31,6 +31,9 @@ FIELDS: list[Field] = [
     Field("suggest_timeout_s", "SUGGEST_TIMEOUT_S", float, 90.0),
     # commercial context file, prepended to every copilot prompt
     Field("sales_context_path", "SALES_CONTEXT_PATH", str, "sales_context.md"),
+    # optional, additive: structured per-lead context (CONFENGE_SALES_CONTEXT/1.0).
+    # Empty = not configured, and the copilot runs on the free-text file alone.
+    Field("sales_context_v1_path", "SALES_CONTEXT_V1_PATH", str, ""),
     # whisper (faster-whisper, local). CPU/int8 by default: no GPU assumed.
     Field("whisper_model", "WHISPER_MODEL", str, "small"),
     Field("whisper_device", "WHISPER_DEVICE", str, "cpu"),
