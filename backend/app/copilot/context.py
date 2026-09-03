@@ -317,6 +317,8 @@ def render_for_prompt(ctx: dict) -> str:
     offer = ctx.get("offer") or {}
     if _is_str(offer.get("current")):
         parts.append(f"Oferta em jogo: {offer['current'].strip()}")
+    if _is_str(offer.get("price_band")):
+        parts.append(f"Faixa de preço publicada: {offer['price_band'].strip()}")
     parts.append(f"Próximo passo alvo: {offer.get('next_state', '')}")
 
     return "\n".join(parts)
