@@ -1,0 +1,42 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "acquisition_channel": "INBOUND_LIVE",
+  "company": {
+    "name": "Vertice Obras e Infraestrutura Ltda",
+    "cnpj": null
+  },
+  "intent": {
+    "kind": "levantou a mão em webinar",
+    "reply_reason": "pediu a chamada no formulário"
+  },
+  "offer": {
+    "next_state": "call_needed",
+    "current": "fechar escopo"
+  },
+  "source_as_of": "2026-08-27",
+  "provenance": "warmbly_sales_context_export",
+  "engagement": {
+    "type": "ACTIVE",
+    "detail": "conversation started"
+  },
+  "public_facts": [
+    "Contrato vence em 2026"
+  ],
+  "opportunities": [
+    "Busca renovação de licitação"
+  ],
+  "touchpoints": [
+    {
+      "summary": "Por que boas construtoras são desclassificadas via webinar — assistiu",
+      "at": "2026-08-27",
+      "channel": "webinar"
+    }
+  ],
+  "evidence": [
+    "portal-transparencia",
+    "site-institucional"
+  ],
+  "limits": [
+    "Não afirme prazo de homologação"
+  ]
+}
