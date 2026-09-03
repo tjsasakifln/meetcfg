@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[0] / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.copilot.context import (
     SCHEMA_ID, load_sales_context_v1, _validate
@@ -23,7 +23,7 @@ from app.copilot.context import (
 
 def test_transformed_inbound():
     """Test that a transformed inbound lead passes validation."""
-    fixture_path = Path(__file__).parent / "fixtures" / "sales_context_transformed_inbound.json"
+    fixture_path = Path(__file__).resolve().parents[2] / "fixtures" / "sales_context_transformed_inbound.json"
 
     if not fixture_path.exists():
         print(f"FAIL: fixture not found: {fixture_path}")
@@ -103,7 +103,7 @@ def test_reject_malformed():
 
 def test_render_brief():
     """Test that the brief would render correctly (tested via integration)."""
-    fixture_path = Path(__file__).parent / "fixtures" / "sales_context_transformed_inbound.json"
+    fixture_path = Path(__file__).resolve().parents[2] / "fixtures" / "sales_context_transformed_inbound.json"
 
     if not fixture_path.exists():
         print(f"SKIP: fixture not found for brief rendering test")
