@@ -142,6 +142,16 @@ empresa, motivo da conversa, fatos públicos, o que o lead **já recebeu** e —
 mais importante — o que **não pode ser afirmado** sobre ele. Os dois convivem: o
 texto livre para posicionamento, o JSON para o lead.
 
+**Escolher o lead da reunião é um comando só** — o que muda é o arquivo:
+
+```bash
+SALES_CONTEXT_V1_PATH=leads/marajoara.json ./backend/run.sh
+```
+
+Não há passo anterior: esse comando sobe o backend já carregado com o dossiê
+daquele lead. Para fixar um lead como padrão, a mesma variável vale em
+`meetcfg.env`:
+
 ```bash
 SALES_CONTEXT_V1_PATH=leads/marajoara.json   # em meetcfg.env
 ```

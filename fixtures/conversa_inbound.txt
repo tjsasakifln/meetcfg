@@ -1,0 +1,20 @@
+# Ensaio INBOUND — Vertice Obras e Infraestrutura (fixtures/sales_context_inbound.json)
+# Lead que JÁ assistiu o webinar e JÁ baixou o checklist: cita os dois pela boca
+# dele. O claim_safety.never_assert proíbe reapresentar a institucional e o
+# método em 4 etapas — a orientação do copiloto não pode mandar o Tiago
+# re-pitchar o básico. A conversa vai direto para escopo, prazo e preço.
+
+tiago: Fernanda, obrigado por ter pedido a conversa. Você marcou no formulário que tem licitação nos próximos noventa dias.
+lead: Isso. Olha, eu já assisti o webinar de julho inteiro, aquele sobre desclassificação antes do preço, e eu baixei o checklist de habilitação também. Então eu já sei o que vocês fazem, não precisa me explicar de novo não.
+tiago: Ótimo, então vamos direto ao ponto. O que te fez levantar a mão agora?
+lead: A gente executa um contrato de drenagem pra prefeitura que vence em dois mil e vinte e seis. E a nossa ideia é sair do municipal e ir pro estadual, que é onde tem volume de verdade. Só que a exigência de habilitação lá é bem mais dura, isso eu já entendi pelo seu material.
+tiago: Certo. E hoje quem cuida da habilitação de vocês internamente?
+lead: É a nossa administrativa, que faz isso junto com mais dez coisas. Funciona no municipal porque a gente já conhece o rito, mas no estadual eu não confio. Passei o checklist de vocês pra ela e ela travou em metade dos itens.
+tiago: Em que itens ela travou?
+lead: Principalmente qualificação técnica e acervo. A gente tem ISO nove mil e um desde vinte e quatro, isso ajuda, mas o acervo do responsável técnico está bagunçado, tem obra que a gente executou e nunca registrou direito.
+tiago: Esse é exatamente o tipo de coisa que trava antes do preço.
+lead: Pois é, foi isso que me fez pedir a conversa. Agora me diz uma coisa prática: se eu fechar com vocês, quanto tempo até eu estar apto pra entrar na estadual? Porque a licitação que eu quero sai em noventa dias.
+tiago: Deixa eu entender o escopo primeiro para não te dar um número solto.
+lead: Tá, mas eu preciso de alguma previsibilidade pra levar. E o acompanhamento anual que vocês apresentaram na sequência de email, aquilo é o que eu preciso ou tem alguma coisa menor pra começar?
+tiago: O anual é o formato, mas o primeiro ciclo é o que resolve os noventa dias.
+lead: Entendi. Então me manda a proposta com o escopo desse primeiro ciclo e o valor. Eu sou quem decide aqui, mas se passar de um certo valor eu vou ter que levar pro meu pai, que é o sócio majoritário. Qual a faixa que eu devo esperar?

@@ -1,0 +1,21 @@
+# Ensaio OUTBOUND — Construtora Marajoara Engenharia (fixtures/sales_context_outbound.json)
+# Outbound frio que respondeu o segundo email. Objeção de habilitação + ceticismo
+# de orçamento. Termina SEM data fechada: o lead precisa do sócio, e o relatório
+# do pós-chamada não pode transformar isso em compromisso agendado.
+
+tiago: Marcos, obrigado pelo tempo. Você respondeu aquele email sobre os dois editais abertos, então deixa eu começar por você: como está a operação de vocês hoje?
+lead: Olha, a gente é construtora de médio porte aqui em Belém, uns doze anos de estrada. Hoje a maior parte é obra privada mesmo, incorporadora, retrofit, essas coisas.
+tiago: E obra pública, vocês chegam a participar?
+lead: A gente tentou. Entramos em uns pregões ano passado e não deu certo nenhum. Foi bem frustrante, para falar a verdade, porque a gente montou preço bom, achei que dava.
+tiago: Você chegou a saber em que etapa vocês caíram?
+lead: Não com clareza, não. Acho que foi documentação, alguém aqui falou que faltou uma certidão, mas eu honestamente não sei te dizer. Ninguém aqui acompanha isso direito, é o meu sócio que olha os editais no fim do dia quando sobra tempo.
+tiago: Entendo. E o que fez você responder o email agora?
+lead: É que obra privada está caindo na região, isso é fato. Ano que vem a gente vai precisar de obra pública, não é mais opcional. Só que eu não sei nem por onde começar esse negócio de habilitação.
+tiago: Faz sentido. Deixa eu te propor um diagnóstico de habilitação de sessenta minutos com você e seu sócio técnico, para a gente olhar exatamente onde vocês caíram.
+lead: Pode ser, mas eu preciso ser bem honesto com você. O orçamento aqui está apertado esse ano, bem apertado mesmo. E a diretoria está meio cética com consultoria, a gente já contratou uma antes e não deu em nada.
+tiago: O que a consultoria anterior prometeu e não entregou?
+lead: Eles fizeram um diagnóstico bonito, um relatório enorme, apresentaram numa reunião e sumiram. Ficou tudo no papel, ninguém executou nada. Por isso quando você fala em contrato anual eu já fico com o pé atrás, sabe.
+tiago: Justo. E se a gente começasse só pelo diagnóstico, sem contrato anual nenhum na mesa agora?
+lead: Aí muda de figura, isso eu consigo olhar. Mas quinta que vem eu não fecho nada sozinho não, o Ricardo é quem entende da parte técnica e ele está em obra a semana inteira. Eu preciso falar com ele antes de marcar qualquer coisa.
+tiago: Perfeito. Como é que a gente faz para envolver o Ricardo?
+lead: Me manda um resumo do que seria esse diagnóstico por email que eu levo pra ele. Aí semana que vem eu te retorno com uma data, mas eu não quero te prometer dia agora porque eu não sei a agenda dele.

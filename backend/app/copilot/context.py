@@ -193,6 +193,16 @@ def load_sales_context_v1(path: str | Path) -> tuple[dict | None, str]:
     reason = _validate(doc)
     if reason:
         return _reject(f"contexto estruturado inválido ({p}): {reason}")
+    if not never_assert_list(doc):
+        # Guarda ADVISORY, não bloqueio: um dossiê sem nenhum limite declarado é
+        # válido e roda normalmente, mas quem lê o log precisa saber que a lista
+        # NÃO AFIRME saiu vazia — ninguém revisou os limites deste lead. O que
+        # NÃO se faz aqui é inventar limites nem anunciar a ausência ao modelo:
+        # "não há limites declarados" no prompt é um passo de inferência de
+        # "então posso afirmar o que quiser".
+        log.info("contexto estruturado PARCIAL (%s): sem limits nem "
+                 "claim_safety.never_assert — nenhum limite de afirmação "
+                 "declarado para este lead", p)
     return doc, ""
 
 
