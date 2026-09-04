@@ -258,6 +258,14 @@ function renderAdvice(msg) {
 }
 
 const LEAD_CONTEXT_FIELDS = [
+  ["resumo", "resumo"],
+  ["nucleo_problema", "núcleo e problema"],
+  ["o_que_ja_se_sabe", "o que já se sabe"],
+  ["o_que_e_unknown", "o que é UNKNOWN"],
+  ["perguntas_sugeridas", "perguntas sugeridas"],
+  ["limites_conflito", "limites/conflito"],
+  ["proximo_estado", "próximo estado"],
+  ["evidencia_tecnica", "evidência técnica disponível"],
   ["empresa", "empresa"],
   ["por_que_chegou_agora", "por que chegou agora"],
   ["canal", "canal"],
@@ -269,6 +277,14 @@ const LEAD_CONTEXT_FIELDS = [
   ["proximo_estado_comercial", "próximo estado comercial"],
   ["freshness", "freshness"],
   ["status", "status"],
+];
+
+const LEAD_DETAIL_FIELDS = [
+  ["handraiser_id", "ID técnico"],
+  ["nucleus_id", "núcleo (id)"],
+  ["receipt", "recibo"],
+  ["schema", "contrato"],
+  ["schema_hash", "hash do contrato"],
 ];
 
 function fieldText(value) {
@@ -284,9 +300,12 @@ function renderLeadContext(msg) {
   const box = $("leadContext");
   const fields = $("leadContextFields");
   const reasonEl = $("leadContextReason");
+  const detailBox = $("leadContextDetail");
+  const detailFields = $("leadContextIds");
   if (!box || !fields) return;
   const conv = msg.conversation || msg;
-  if (msg.reason && !msg.ok && !conv.empresa) {
+  const detalhe = conv.detalhe || {};
+  if (msg.reason && !msg.ok && !conv.empresa && !conv.resumo) {
     box.classList.remove("hidden");
     reasonEl.classList.remove("hidden");
     reasonEl.textContent = msg.reason;
@@ -310,6 +329,17 @@ function renderLeadContext(msg) {
     const dd = document.createElement("dd");
     dd.textContent = "sim — não é elegibilidade outbound";
     fields.append(dt, dd);
+  }
+  if (detailBox && detailFields) {
+    detailFields.textContent = "";
+    for (const [key, label] of LEAD_DETAIL_FIELDS) {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = fieldText(detalhe[key] !== undefined ? detalhe[key] : (conv[key] !== undefined ? conv[key] : msg[key]));
+      detailFields.append(dt, dd);
+    }
+    detailBox.classList.remove("hidden");
   }
   box.classList.remove("hidden");
 }
@@ -339,8 +369,11 @@ function renderConversationList(body) {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
-    const bits = [row.empresa || "UNKNOWN", row.status || "", row.freshness || ""].filter(Boolean);
+    const title = row.resumo || row.titulo || row.empresa || "UNKNOWN";
+    const nucleo = row.nucleo && row.nucleo !== "UNKNOWN" ? row.nucleo : "";
+    const bits = [title, nucleo].filter(Boolean);
     btn.textContent = bits.join(" · ");
+    btn.title = ""; // never use the technical id as the visible title
     if (row.inbound_only === true) {
       const meta = document.createElement("span");
       meta.className = "hr-list-meta";
