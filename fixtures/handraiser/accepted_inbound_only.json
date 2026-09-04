@@ -1,0 +1,25 @@
+{
+  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "admission": {
+    "schema_version": "net-new-inbound-handraiser-admission.v1",
+    "policy_id": "NET_NEW_INBOUND_HANDRAISER",
+    "decision": "ACCEPTED",
+    "reason_codes": ["ADMISSION_GATES_SATISFIED"],
+    "receipt_id": "rcpt_net_new_inbound_001",
+    "logical_admission_id": "nihr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "idempotency_key": "nihr:web:net-new-001",
+    "origin": "CONFENGE_WEB",
+    "acquisition_lane": "NET_NEW_INBOUND",
+    "intent_kind": "DEEP_DIVE",
+    "subject_ref": null,
+    "account_present": false,
+    "inbound_only": true,
+    "outbound_eligible": false,
+    "identity_authorization": "INBOUND_ONLY",
+    "freshness": {
+      "as_of": "2026-09-03T11:00:00Z",
+      "max_age_seconds": 86400
+    },
+    "evaluated_at": "2026-09-03T12:00:00Z"
+  }
+}

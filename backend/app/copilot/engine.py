@@ -26,6 +26,7 @@ from pathlib import Path
 from ..config import settings
 from ..llm import LLMError, generate, provider_name
 from .context import load_sales_context_v1, render_for_prompt
+from . import handraiser
 
 log = logging.getLogger("meetcfg.copilot")
 
@@ -52,7 +53,11 @@ sem alternativas. Não invente fatos sobre o lead ou a empresa dele.
 
 Havendo contexto estruturado do lead: a lista NÃO AFIRME é limite duro, nunca a \
 contradiga nem como hipótese; e o que os pontos de contato dizem que ele já recebeu \
-não se vende de novo — quem já viu a apresentação não precisa dela outra vez."""
+não se vende de novo — quem já viu a apresentação não precisa dela outra vez. \
+O que NÃO sabemos permanece não sabido: não invente CNPJ, cargo, decisor, fit, \
+chance, prazo ou prova. Fit histórico, confiança do produtor ou “boa empresa” \
+não são habilitação legal nem probabilidade de vitória. Identidade inbound-only \
+nunca vira elegibilidade outbound."""
 
 
 def load_sales_context() -> str:
@@ -68,13 +73,22 @@ def load_sales_context() -> str:
         return ""
 
 
-def load_structured_context() -> dict | None:
+def load_structured_context(session=None) -> dict | None:
     """Optional per-lead dossier (CONFENGE_SALES_CONTEXT/1.0), or None.
 
-    Not configured, unreadable or invalid all collapse to None on purpose: a
-    broken dossier must never break "modo manual" — the free-text context alone
-    is a complete, supported setup. The loader already logged the reason.
+    A bound hand-raiser is re-read from the consumer store (and the producer,
+    when configured) on every tick. File-based SALES_CONTEXT_V1_PATH remains
+    the fallback. Not configured, unreadable or invalid all collapse to None
+    on purpose: a broken dossier must never break "modo manual".
     """
+    if session is not None:
+        bound = handraiser.context_for_session(
+            session,
+            refresh=bool(settings.handraiser_consumer_enabled),
+            enabled=bool(settings.handraiser_consumer_enabled),
+        )
+        if bound is not None:
+            return bound
     raw = settings.sales_context_v1_path
     if not raw:
         return None
@@ -226,10 +240,14 @@ class CopilotEngine:
             parts.append(context)
         # Both files coexist: the free text carries positioning/strategy, this
         # one carries the specific lead in front of Tiago right now.
-        lead = load_structured_context()
+        lead = load_structured_context(self.session)
         if lead is not None:
             parts.append("\nCONTEXTO ESTRUTURADO DESTE LEAD (CONFENGE_SALES_CONTEXT/1.0):")
             parts.append(render_for_prompt(lead))
+            parts.append(
+                "Fit histórico não é habilitação legal nem probabilidade de vitória. "
+                "O que NÃO sabemos permanece ausente."
+            )
         # Rolling tail, most recent last, bounded by char budget (~60-120s).
         budget = settings.suggest_transcript_chars
         used = 0

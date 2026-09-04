@@ -1,0 +1,24 @@
+{
+  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "handraiser_id": "33333333-3333-3333-3333-333333333333",
+  "admission": {
+    "schema_version": "net-new-inbound-handraiser-admission.v1",
+    "decision": "REJECTED_WITH_REASON",
+    "reason_codes": ["CONSENT_REFUSED"],
+    "receipt_id": "rcpt_rejected_001",
+    "logical_admission_id": "nihr_cccccccccccccccccccccccccccccccc",
+    "origin": "CONFENGE_WEB",
+    "acquisition_lane": "NET_NEW_INBOUND",
+    "intent_kind": "DEEP_DIVE",
+    "inbound_only": false,
+    "outbound_eligible": false,
+    "evaluated_at": "2026-09-03T12:00:00Z"
+  },
+  "item": {
+    "action_id": "33333333-3333-3333-3333-333333333333",
+    "acquisition_channel": "confenge_web",
+    "company_name": "Não deve aparecer",
+    "intent_reason": "DEEP_DIVE",
+    "created_at": "2026-09-03T11:00:00Z"
+  }
+}

@@ -126,6 +126,7 @@ de Voz do Windows** e salve/converta para `.wav`. Não precisa de ffmpeg.
 .venv/bin/python backend/tools/echo_selftest.py      # supressão de eco mic↔lead
 .venv/bin/python backend/tools/watchdog_selftest.py  # watchdog de transcrição travada
 .venv/bin/python backend/tools/context_selftest.py   # validação do contexto estruturado
+.venv/bin/python backend/tools/handraiser_selftest.py  # consumer de hand-raiser aceito
 ```
 
 Nenhum deles chama o Codex nem carrega o whisper — rodam em segundos.
@@ -164,6 +165,29 @@ Vazio (o padrão) é modo manual: o copiloto roda só com o `sales_context.md`, 
 sempre rodou. Contexto inválido também cai em modo manual — o motivo aparece no
 log e o documento é descartado inteiro, nunca pela metade. Modelos válidos em
 [`fixtures/`](fixtures/).
+
+### Hand-raiser aceito (consumer)
+
+Meetcfg **não** cria CRM, lead, intenção nem elegibilidade outbound. Consome um
+item aceito (Warmbly `action_id` ou admissão Governance) e abre **uma** sessão
+de conversa com o dossiê já carregado.
+
+- Dossiê do copiloto: `CONFENGE_SALES_CONTEXT/1.0` (um lead).
+- Coleção/índice: `CONFENGE_SALES_CONTEXT_EXPORT/1.0`. O GET
+  `/confenge/sales-context` do Warmbly ainda tagueia a coleção com o schema do
+  dossiê — o consumer recusa essa forma (`SCHEMA_MISMATCH_COLLECTION`).
+- `POST /api/handraiser/ingest` com o JSON do item (ou o wrap
+  `CONFENGE_HANDRAISER_ITEM/1.0`). Replay do mesmo `handraiser_id` devolve a
+  mesma sessão `hr:<id>`. `REJECTED_WITH_REASON` / `UNKNOWN` / freshness
+  inválida falham fechado, sem sessão.
+- Tela da conversa: empresa, por que chegou agora, intenção, fatos
+  verificáveis, o que NÃO sabemos, oportunidade/contrato, último
+  touch/outcome, próximo estado. Abra `/?meeting=hr:<id>` ou
+  `/?handraiser=<id>`.
+- Rollback: `HANDRAISER_CONSUMER_ENABLED=false` recusa ingest novo e preserva
+  receipts já aceitos. `inbound_only` do produtor nunca vira outbound.
+
+Fixtures em [`fixtures/handraiser/`](fixtures/handraiser/).
 
 **Antes da chamada** — briefing de 8 seções, determinístico, sem Codex e sem
 backend rodando:

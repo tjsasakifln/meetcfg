@@ -59,6 +59,9 @@ class MeetingSession:
     last_activity: float = field(default_factory=time.time)
     last_advice: dict | None = None
     engine: object = None  # set by main on creation (CopilotEngine)
+    handraiser_id: str | None = None
+    handraiser_context: dict | None = None
+    handraiser_version: int = 0
     _next_id: int = 0
 
     def ingest(self, source: str, text: str) -> tuple[str, int | None, int | None]:
@@ -145,6 +148,10 @@ def get_or_create(meeting_id: str) -> MeetingSession:
         _sessions[meeting_id] = s
         log.info("meeting session created: %s", meeting_id)
     return s
+
+
+def get(meeting_id: str) -> MeetingSession | None:
+    return _sessions.get(meeting_id)
 
 
 def _prune() -> None:

@@ -1,0 +1,23 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "handraiser_id": "88888888-8888-8888-8888-888888888888",
+  "acquisition_channel": "INBOUND_LIVE",
+  "company": {
+    "name": "Ref Como CNPJ Ltda",
+    "cnpj": "acme-holdings"
+  },
+  "intent": {
+    "kind": "REQUEST_DEEP_DIVE",
+    "reply_reason": null
+  },
+  "offer": {
+    "current": null,
+    "next_state": "call_needed"
+  },
+  "source_as_of": "2026-09-03",
+  "provenance": "warmbly_sales_context_item",
+  "public_facts": [],
+  "opportunities": [],
+  "evidence": [],
+  "limits": []
+}

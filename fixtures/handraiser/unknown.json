@@ -1,0 +1,14 @@
+{
+  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "handraiser_id": "44444444-4444-4444-4444-444444444444",
+  "admission": {
+    "schema_version": "net-new-inbound-handraiser-admission.v1",
+    "decision": "UNKNOWN",
+    "reason_codes": ["FRESHNESS_UNKNOWN"],
+    "receipt_id": "rcpt_unknown_001",
+    "logical_admission_id": "nihr_dddddddddddddddddddddddddddddddd",
+    "origin": "CONFENGE_WEB",
+    "inbound_only": false,
+    "evaluated_at": "2026-09-03T12:00:00Z"
+  }
+}

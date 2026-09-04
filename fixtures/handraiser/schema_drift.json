@@ -1,0 +1,10 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/9.9",
+  "handraiser_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "acquisition_channel": "INBOUND_LIVE",
+  "company": {"name": "Drift Ltda", "cnpj": null},
+  "intent": {"kind": "DEEP_DIVE", "reply_reason": null},
+  "offer": {"current": null, "next_state": "call_needed"},
+  "source_as_of": "2026-09-03",
+  "provenance": "future-schema"
+}

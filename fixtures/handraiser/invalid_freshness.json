@@ -1,0 +1,28 @@
+{
+  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "handraiser_id": "99999999-9999-9999-9999-999999999999",
+  "admission": {
+    "schema_version": "net-new-inbound-handraiser-admission.v1",
+    "decision": "ACCEPTED",
+    "reason_codes": ["ADMISSION_GATES_SATISFIED"],
+    "receipt_id": "rcpt_invalid_freshness_001",
+    "logical_admission_id": "nihr_ffffffffffffffffffffffffffffffff",
+    "origin": "CONFENGE_WEB",
+    "acquisition_lane": "NET_NEW_INBOUND",
+    "intent_kind": "DEEP_DIVE",
+    "inbound_only": true,
+    "freshness": {
+      "as_of": "not-a-timestamp",
+      "max_age_seconds": 3600
+    },
+    "evaluated_at": "2026-09-03T12:00:00Z"
+  },
+  "item": {
+    "action_id": "99999999-9999-9999-9999-999999999999",
+    "acquisition_channel": "confenge_web",
+    "company_name": "Freshness Invalida Ltda",
+    "intent_reason": "DEEP_DIVE",
+    "next_action_type": "call_needed",
+    "created_at": "not-a-timestamp"
+  }
+}

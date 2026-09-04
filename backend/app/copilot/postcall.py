@@ -90,7 +90,7 @@ def build_prompt(session) -> str:
     if context:
         parts.append("CONTEXTO COMERCIAL (fixo):")
         parts.append(context)
-    lead = load_structured_context()
+    lead = load_structured_context(session)
     if lead is not None:
         parts.append("\nCONTEXTO ESTRUTURADO DESTE LEAD (CONFENGE_SALES_CONTEXT/1.0):")
         parts.append(render_for_prompt(lead))

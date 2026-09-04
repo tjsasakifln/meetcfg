@@ -18,7 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.copilot.context import (  # noqa: E402
-    engagement_type, load_sales_context_v1, render_for_prompt,
+    SCHEMA_EXPORT, SCHEMA_ID, engagement_type, is_collection,
+    load_sales_context_v1, render_for_prompt,
 )
 
 # The loader warns on every rejection; here rejections are the expected outcome.
@@ -164,6 +165,22 @@ def main() -> None:
     check("render mínimo não vazio", bool(text.strip()), True)
     check("cita a empresa", "Empresa Mínima Ltda" in text, True)
     check("sem seções vazias penduradas", "NÃO AFIRME" in text, False)
+
+    print("coleção/índice nunca é dossiê do copiloto")
+    for name in (
+        "handraiser/schema_collision_collection.json",
+        "handraiser/schema_mismatch_export.json",
+    ):
+        p = FIXTURES / name
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        check(f"{name} is_collection", is_collection(doc), True)
+        ctx, reason = load_sales_context_v1(p)
+        check(f"{name} recusado inteiro", ctx is None, True)
+        check(f"{name} menciona coleção", "coleção" in (reason or ""), True)
+        check(f"{name} aponta {SCHEMA_EXPORT}", SCHEMA_EXPORT in (reason or ""), True)
+    individual = valid["sales_context_inbound.json"]
+    check("dossiê individual mantém schema", individual.get("schema"), SCHEMA_ID)
+    check("dossiê individual não é coleção", is_collection(individual), False)
 
     if FAILS:
         print(f"\n{FAILS} FAILURES")

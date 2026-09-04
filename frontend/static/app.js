@@ -213,6 +213,7 @@ function connectCopilot() {
     if (msg.type === "advice") renderAdvice(msg);
     else if (msg.type === "transcript") addLine(msg);
     else if (msg.type === "retract") retractLine(msg.id);
+    else if (msg.type === "handraiser_context") renderLeadContext(msg);
     else if (msg.type === "copilot_status") {
       if (msg.state === "thinking") setCopilotStatus("pensando…", true);
       else if (msg.state === "error") setCopilotStatus("erro: " + (msg.msg || "falhou"));
@@ -256,6 +257,75 @@ function renderAdvice(msg) {
     `${msg.at || ""}${msg.elapsed_ms ? ` · ${(msg.elapsed_ms / 1000).toFixed(1)}s` : ""}${msg.replay ? " · (anterior)" : ""}`;
 }
 
+const LEAD_CONTEXT_FIELDS = [
+  ["empresa", "empresa"],
+  ["por_que_chegou_agora", "por que chegou agora"],
+  ["intencao", "intenção"],
+  ["fatos_verificaveis", "fatos verificáveis"],
+  ["o_que_nao_sabemos", "o que NÃO sabemos"],
+  ["oportunidade_contrato", "oportunidade/contrato relevante"],
+  ["ultimo_touch_outcome", "último touch/outcome"],
+  ["proximo_estado_comercial", "próximo estado comercial"],
+];
+
+function fieldText(value) {
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => typeof v === "string" && v.trim());
+    return items.length ? items.join("; ") : "UNKNOWN";
+  }
+  if (value === null || value === undefined || value === "") return "UNKNOWN";
+  return String(value);
+}
+
+function renderLeadContext(msg) {
+  const box = $("leadContext");
+  const fields = $("leadContextFields");
+  const reasonEl = $("leadContextReason");
+  if (!box || !fields) return;
+  const conv = msg.conversation || msg;
+  if (msg.reason && !msg.ok && !conv.empresa) {
+    box.classList.remove("hidden");
+    reasonEl.classList.remove("hidden");
+    reasonEl.textContent = msg.reason;
+    return;
+  }
+  reasonEl.classList.add("hidden");
+  fields.textContent = "";
+  for (const [key, label] of LEAD_CONTEXT_FIELDS) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    const text = fieldText(conv[key] !== undefined ? conv[key] : msg[key]);
+    dd.textContent = text;
+    if (text === "UNKNOWN") dd.className = "unknown";
+    fields.append(dt, dd);
+  }
+  box.classList.remove("hidden");
+}
+
+function loadLeadContext() {
+  const params = new URLSearchParams(location.search);
+  const hr = params.get("handraiser");
+  const url = hr
+    ? `/api/handraiser/${encodeURIComponent(hr)}`
+    : `/api/session/context?meeting=${encodeURIComponent(meetingId)}`;
+  fetch(url)
+    .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+    .then(({ body }) => {
+      if (body && (body.ok || body.conversation || body.empresa)) renderLeadContext(body);
+      else if (body && body.reason) {
+        const box = $("leadContext");
+        const reasonEl = $("leadContextReason");
+        if (box && reasonEl && (params.get("handraiser") || (params.get("meeting") || "").indexOf("hr:") === 0)) {
+          box.classList.remove("hidden");
+          reasonEl.classList.remove("hidden");
+          reasonEl.textContent = body.reason;
+        }
+      }
+    })
+    .catch(() => {});
+}
+
 $("startBtn").onclick = start;
 $("stopBtn").onclick = stop;
 $("adviseBtn").onclick = () => {
@@ -266,3 +336,4 @@ $("adviseBtn").onclick = () => {
 // Connect on load so the test mode (tools/inject_transcript.py) can drive the
 // page without anyone clicking Iniciar.
 connectCopilot();
+loadLeadContext();

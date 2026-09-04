@@ -13,14 +13,15 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import meeting
 from .config import settings
 from .copilot.engine import CopilotEngine
+from .copilot import handraiser
 from .transcription.whisper_engine import StreamingTranscriber, get_model, transcribe_watched
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -36,7 +37,8 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND / "static")), name="stat
 @app.on_event("startup")
 async def _warmup() -> None:
     # Load whisper at boot so the first utterance isn't slow.
-    await asyncio.to_thread(get_model)
+    if settings.whisper_warmup:
+        await asyncio.to_thread(get_model)
 
 
 @app.get("/")
@@ -68,6 +70,12 @@ def _session_for_id(meeting_id: str) -> meeting.MeetingSession:
     session = meeting.get_or_create(meeting_id)
     if session.engine is None:
         session.engine = CopilotEngine(session)
+    if not session.handraiser_id and meeting_id.startswith(handraiser.SESSION_PREFIX):
+        rec = handraiser.get_store().get(meeting_id[len(handraiser.SESSION_PREFIX):])
+        if rec is not None:
+            session.handraiser_id = rec.handraiser_id
+            session.handraiser_context = rec.dossier
+            session.handraiser_version = rec.version
     return session
 
 
@@ -148,6 +156,9 @@ async def ws_copilot(ws: WebSocket) -> None:
         # A refreshed page still sees the latest orientation.
         if session.last_advice:
             await ws.send_text(json.dumps({**session.last_advice, "replay": True}))
+        ctx = _conversation_payload(session)
+        if ctx is not None:
+            await ws.send_text(json.dumps(ctx))
         await ws.send_text(json.dumps({"type": "copilot_status", "state": "idle"}))
         while True:
             raw = await ws.receive_text()
@@ -162,6 +173,143 @@ async def ws_copilot(ws: WebSocket) -> None:
     finally:
         session.listeners.discard(ws)
         log.info("copilot ws disconnected meeting=%s", session.meeting_id)
+
+
+def _conversation_payload(session: meeting.MeetingSession) -> dict | None:
+    dossier = handraiser.context_for_session(
+        session,
+        refresh=False,
+        enabled=bool(settings.handraiser_consumer_enabled),
+    )
+    if dossier is None:
+        return None
+    conv = handraiser.render_conversation_layer(dossier)
+    return {
+        "type": "handraiser_context",
+        "handraiser_id": getattr(session, "handraiser_id", None) or conv.get("handraiser_id"),
+        "version": getattr(session, "handraiser_version", 0),
+        "conversation": conv,
+        "empresa": conv.get("empresa"),
+        "por_que_chegou_agora": conv.get("por_que_chegou_agora"),
+        "intencao": conv.get("intencao"),
+        "fatos_verificaveis": conv.get("fatos_verificaveis"),
+        "o_que_nao_sabemos": conv.get("o_que_nao_sabemos"),
+        "oportunidade_contrato": conv.get("oportunidade_contrato"),
+        "ultimo_touch_outcome": conv.get("ultimo_touch_outcome"),
+        "proximo_estado_comercial": conv.get("proximo_estado_comercial"),
+        "inbound_only": conv.get("inbound_only"),
+    }
+
+
+def _consume_kwargs() -> dict:
+    return {
+        "enabled": bool(settings.handraiser_consumer_enabled),
+        "max_bytes": int(settings.handraiser_max_payload_bytes),
+        "freshness_max_age_s": float(settings.handraiser_freshness_max_age_s),
+        "bind_session": True,
+    }
+
+
+@app.post("/api/handraiser/ingest")
+async def api_handraiser_ingest(request: Request):
+    """Accept one hand-raiser payload. Collection/rejected/UNKNOWN fail closed."""
+    raw = await request.body()
+    max_bytes = int(settings.handraiser_max_payload_bytes)
+    if len(raw) > max_bytes:
+        log.info("handraiser ingest refused reason=%s bytes=%s", handraiser.OVERSIZED, len(raw))
+        return JSONResponse(
+            {"ok": False, "reason": handraiser.OVERSIZED, "session_id": None},
+            status_code=413,
+        )
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        log.info("handraiser ingest refused reason=%s", handraiser.MALFORMED)
+        return JSONResponse(
+            {"ok": False, "reason": handraiser.MALFORMED, "session_id": None},
+            status_code=400,
+        )
+    result = handraiser.consume(payload, raw_size=len(raw), **_consume_kwargs())
+    body = result.as_http()
+    if not result.ok:
+        return JSONResponse(body, status_code=409 if result.reason == handraiser.CONSUMER_DISABLED else 400)
+    return body
+
+
+@app.get("/api/handraiser/{handraiser_id}")
+async def api_handraiser_get(handraiser_id: str):
+    """Already-accepted context stays readable after the consumer is disabled."""
+    rec = handraiser.get_store().get(handraiser_id)
+    if rec is None:
+        return JSONResponse({"ok": False, "reason": handraiser.NOT_FOUND, "session_id": None}, status_code=404)
+    conv = rec.conversation
+    return {
+        "ok": True,
+        "reason": "",
+        "handraiser_id": rec.handraiser_id,
+        "session_id": rec.session_id,
+        "receipt": rec.receipt,
+        "version": rec.version,
+        "inbound_only": rec.inbound_only,
+        "conversation": conv,
+        "empresa": conv.get("empresa"),
+        "intencao": conv.get("intencao"),
+        "proximo_estado_comercial": conv.get("proximo_estado_comercial"),
+        "por_que_chegou_agora": conv.get("por_que_chegou_agora"),
+    }
+
+
+class SelectHandraiser(BaseModel):
+    handraiser_id: str
+
+
+@app.post("/api/handraiser/select")
+async def api_handraiser_select(body: SelectHandraiser) -> dict:
+    rec = handraiser.get_store().get(body.handraiser_id)
+    if rec is None:
+        return JSONResponse({"ok": False, "reason": handraiser.NOT_FOUND, "session_id": None}, status_code=404)
+    session = _session_for_id(rec.session_id)
+    session.handraiser_id = rec.handraiser_id
+    session.handraiser_context = rec.dossier
+    session.handraiser_version = rec.version
+    conv = rec.conversation
+    log.info("handraiser selected handraiser_id=%s session_id=%s", rec.handraiser_id, rec.session_id)
+    return {
+        "ok": True,
+        "reason": "",
+        "session_id": rec.session_id,
+        "handraiser_id": rec.handraiser_id,
+        "version": rec.version,
+        "conversation": conv,
+        "empresa": conv.get("empresa"),
+        "intencao": conv.get("intencao"),
+        "proximo_estado_comercial": conv.get("proximo_estado_comercial"),
+    }
+
+
+@app.get("/api/session/context")
+async def api_session_context(meeting: str = "default") -> dict:
+    session = meeting_mod_get(meeting)
+    if session is None:
+        # Selecting a known hr:* meeting materializes the bound context.
+        rec = None
+        if meeting.startswith(handraiser.SESSION_PREFIX):
+            rec = handraiser.get_store().get(meeting[len(handraiser.SESSION_PREFIX):])
+        if rec is None:
+            return JSONResponse({"ok": False, "reason": handraiser.NOT_FOUND, "session_id": None}, status_code=404)
+        session = _session_for_id(rec.session_id)
+        session.handraiser_id = rec.handraiser_id
+        session.handraiser_context = rec.dossier
+        session.handraiser_version = rec.version
+    payload = _conversation_payload(session)
+    if payload is None:
+        return JSONResponse({"ok": False, "reason": handraiser.NOT_FOUND, "session_id": session.meeting_id},
+                            status_code=404)
+    return {"ok": True, "reason": "", "session_id": session.meeting_id, **payload}
+
+
+def meeting_mod_get(meeting_id: str):
+    return meeting.get(meeting_id)
 
 
 class InjectLine(BaseModel):

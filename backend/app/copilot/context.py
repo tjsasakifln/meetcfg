@@ -23,6 +23,12 @@ from pathlib import Path
 log = logging.getLogger("meetcfg.context")
 
 SCHEMA_ID = "CONFENGE_SALES_CONTEXT/1.0"
+# Collection/index is a different contract. Warmbly's live export still tags the
+# collection with SCHEMA_ID — Meetcfg must never treat that envelope as a dossier.
+SCHEMA_EXPORT = "CONFENGE_SALES_CONTEXT_EXPORT/1.0"
+
+_CNPJ_FMT_RE = re.compile(r"^\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}$")
+_CNPJ_DIGITS_RE = re.compile(r"^\d{14}$")
 
 # Hard enum: it steers copilot behaviour (um inbound que levantou a mão não
 # recebe a mesma abordagem de um outbound frio), so an unrecognised value is an
@@ -87,10 +93,39 @@ def _opt_dict(doc: dict, key: str) -> str:
     return ""
 
 
+def looks_like_cnpj(value) -> bool:
+    """True only for a 14-digit or formatted CNPJ. Slugs/UUIDs/refs are not CNPJ."""
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    return bool(_CNPJ_FMT_RE.match(s) or _CNPJ_DIGITS_RE.match(s))
+
+
+def is_collection(doc) -> bool:
+    """True for a hand-raiser index/export, including the live Warmbly collision.
+
+    Warmbly GET /confenge/sales-context tags the *collection* as SCHEMA_ID.
+    Shape (items[] + export metadata), not the tag, is what makes it an index.
+    """
+    if not isinstance(doc, dict):
+        return False
+    if doc.get("schema") == SCHEMA_EXPORT:
+        return True
+    items = doc.get("items")
+    if not isinstance(items, list):
+        return False
+    return any(k in doc for k in ("total", "by_engine", "generated_at", "organization_id", "unattributed"))
+
+
 def _validate(doc) -> str:
     """Returns "" when the document is usable, or a one-line reason why not."""
     if not isinstance(doc, dict):
         return "documento não é um objeto JSON"
+
+    if is_collection(doc):
+        tag = doc.get("schema")
+        return (f"coleção recusada como dossiê (schema {tag!r}); "
+                f"índice é {SCHEMA_EXPORT}, dossiê do copiloto é {SCHEMA_ID}")
 
     if doc.get("schema") != SCHEMA_ID:
         return f"schema deve ser exatamente {SCHEMA_ID!r} (veio {doc.get('schema')!r})"
@@ -273,7 +308,8 @@ def render_for_prompt(ctx: dict) -> str:
     company = ctx.get("company") or {}
     cnpj = company.get("cnpj")
     line = f"Empresa: {company.get('name', '')}"
-    if _is_str(cnpj):
+    # company_ref stuffed into cnpj is not a CNPJ — never present it as one.
+    if looks_like_cnpj(cnpj):
         line += f" (CNPJ {cnpj.strip()})"
     parts.append(line)
 
@@ -282,6 +318,9 @@ def render_for_prompt(ctx: dict) -> str:
     if _is_str(intent.get("reply_reason")):
         line += f" — {intent['reply_reason'].strip()}"
     parts.append(line)
+
+    if ctx.get("inbound_only") is True:
+        parts.append("Identidade inbound-only: não habilita abordagem outbound, SMTP nem follow-up.")
 
     engagement = ctx.get("engagement") or {}
     bits = [t for t in [engagement_type(ctx)] if t]
@@ -313,6 +352,8 @@ def render_for_prompt(ctx: dict) -> str:
                  rendered)
 
     _section(parts, "NÃO AFIRME (limite duro, nem como hipótese):", never_assert_list(ctx))
+    _section(parts, "O que NÃO sabemos (permanece ausente; não preencha):",
+             _strs(ctx.get("unknown")))
 
     offer = ctx.get("offer") or {}
     if _is_str(offer.get("current")):
