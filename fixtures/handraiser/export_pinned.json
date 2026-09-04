@@ -1,0 +1,222 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT_EXPORT/1.0",
+  "organization_id": "550e8400-e29b-41d4-a716-446655440000",
+  "generated_at": "2026-09-03T15:30:00Z",
+  "total": 2,
+  "by_engine": {
+    "confenge_web": 2
+  },
+  "unattributed": 0,
+  "items": [
+    {
+      "schema": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
+      "schema_hash": "300a5970bbb5fc9c50682b67911e4fd067839e2c0c7de5fbc05ed05a076bffd5",
+      "contracts": {
+        "admission": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+        "catalog": "CONFENGE_OFFER_CATALOG/2.0.0-draft.20260904",
+        "context": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
+        "intake": "CONFENGE_WEB_INTAKE/2.0.0-draft.20260904",
+        "state": "CONFENGE_HANDRAISER_STATE/1.0.0-draft.20260904",
+        "taxonomy": "CONFENGE_CORPORATE_TAXONOMY/1.0.0-draft.20260904"
+      },
+      "source": "CONFENGE_WEB",
+      "lane": "CONFENGE_WEB",
+      "inbound_only": true,
+      "outbound_eligible": false,
+      "auto_send": false,
+      "offer_candidate": "private_project_technical_readiness_assessment",
+      "private_asset": "private_project_technical_readiness_v1",
+      "qualification_state": "ACCEPTED",
+      "conflict": {
+        "status": "CLEAR",
+        "restriction": "NONE"
+      },
+      "handraiser_id": "11111111-1111-1111-1111-111111111111",
+      "origin": "CONFENGE_WEB",
+      "nucleus_id": "public_works_b2g",
+      "decision": "ACCEPTED",
+      "receipt": "rcpt_vertice_webinar_001",
+      "identity": {
+        "inbound_ref": "vertice-obras",
+        "decision_role": "UNKNOWN"
+      },
+      "situation": {
+        "why_now": "levantou a mão no webinar e pediu a chamada",
+        "problema": "quer fechar o escopo do primeiro ciclo em obra pública",
+        "urgency": "this_week",
+        "city_service_area_class": "municipio_sp",
+        "desired_decision": "fechar o escopo do primeiro ciclo",
+        "document_availability_class": "public_portal_only"
+      },
+      "permitted": {
+        "facts": [
+          "levantou a mão no webinar e pediu a chamada",
+          "Executa contrato municipal de drenagem em vigência, informação do portal de transparência"
+        ],
+        "provenance": "warmbly_accepted_item",
+        "owner_links": [
+          "https://owner.example.invalid/handraiser/11111111-1111-1111-1111-111111111111"
+        ]
+      },
+      "freshness": {
+        "as_of": "2026-09-03T11:00:00Z"
+      },
+      "admission": {
+        "schema_version": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+        "policy_id": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+        "decision": "ACCEPTED",
+        "reason_codes": [
+          "ADMISSION_GATES_SATISFIED"
+        ],
+        "receipt_id": "rcpt_vertice_webinar_001",
+        "logical_admission_id": "nihr_11111111111111111111111111111111",
+        "origin": "CONFENGE_WEB",
+        "acquisition_lane": "NET_NEW_INBOUND",
+        "intent_kind": "REQUEST_DEEP_DIVE",
+        "subject_ref": "vertice-obras",
+        "inbound_only": true,
+        "outbound_eligible": false,
+        "auto_send": false,
+        "identity_authorization": "INBOUND_ONLY",
+        "evaluated_at": "2026-09-03T12:00:00Z"
+      },
+      "item": {
+        "action_id": "11111111-1111-1111-1111-111111111111",
+        "acquisition_channel": "confenge_web",
+        "company_ref": "vertice-obras",
+        "company_name": "Vertice Obras e Infraestrutura Ltda",
+        "intent_reason": "REQUEST_DEEP_DIVE",
+        "reply_reason": "levantou a mão no webinar e pediu a chamada",
+        "conversation_started": true,
+        "facts": {
+          "why_now": "levantou a mão no webinar e pediu a chamada",
+          "factual_hook": "Executa contrato municipal de drenagem em vigência, informação do portal de transparência",
+          "evidence_ids": [
+            "portal-transparencia",
+            "webinar-2026-07-15"
+          ],
+          "stated_limits": [
+            "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública",
+            "Não trate B2G como habilitação jurídica automática"
+          ]
+        },
+        "touchpoints": [
+          {
+            "ordinal": 1,
+            "channel": "confenge_web",
+            "state": "submitted",
+            "subject": "formulário público",
+            "sent_at": "2026-09-03T11:00:00Z"
+          }
+        ],
+        "next_action_type": "fechar o escopo do primeiro ciclo",
+        "state": "call_needed",
+        "created_at": "2026-09-03T11:00:00Z"
+      }
+    },
+    {
+      "schema": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
+      "schema_hash": "300a5970bbb5fc9c50682b67911e4fd067839e2c0c7de5fbc05ed05a076bffd5",
+      "contracts": {
+        "admission": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+        "catalog": "CONFENGE_OFFER_CATALOG/2.0.0-draft.20260904",
+        "context": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
+        "intake": "CONFENGE_WEB_INTAKE/2.0.0-draft.20260904",
+        "state": "CONFENGE_HANDRAISER_STATE/1.0.0-draft.20260904",
+        "taxonomy": "CONFENGE_CORPORATE_TAXONOMY/1.0.0-draft.20260904"
+      },
+      "source": "CONFENGE_WEB",
+      "lane": "CONFENGE_WEB",
+      "inbound_only": true,
+      "outbound_eligible": false,
+      "auto_send": false,
+      "offer_candidate": "private_project_technical_readiness_assessment",
+      "private_asset": "private_project_technical_readiness_v1",
+      "qualification_state": "ACCEPTED",
+      "conflict": {
+        "status": "CLEAR",
+        "restriction": "NONE"
+      },
+      "handraiser_id": "12121212-1212-1212-1212-121212121212",
+      "origin": "CONFENGE_WEB",
+      "nucleus_id": "expert_evidence_assistance",
+      "decision": "ACCEPTED",
+      "receipt": "rcpt_ee_001",
+      "identity": {
+        "inbound_ref": "prova-tecnica",
+        "decision_role": "UNKNOWN"
+      },
+      "situation": {
+        "why_now": "pediu apoio técnico para organizar prova pericial já existente",
+        "problema": "precisa de leitura técnica da prova sem inventar tese",
+        "urgency": "this_month",
+        "city_service_area_class": "rmsp",
+        "desired_decision": "alinhar o recorte da prova que pode ser citado",
+        "document_availability_class": "partial_existing"
+      },
+      "permitted": {
+        "facts": [
+          "solicitou conversa pelo formulário público CONFENGE_WEB",
+          "declarou que já existe material técnico, sem detalhe de processo"
+        ],
+        "provenance": "warmbly_accepted_item",
+        "owner_links": [
+          "https://owner.example.invalid/handraiser/12121212-1212-1212-1212-121212121212"
+        ]
+      },
+      "freshness": {
+        "as_of": "2026-09-03T11:00:00Z"
+      },
+      "admission": {
+        "schema_version": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+        "policy_id": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+        "decision": "ACCEPTED",
+        "reason_codes": [
+          "ADMISSION_GATES_SATISFIED"
+        ],
+        "receipt_id": "rcpt_ee_001",
+        "logical_admission_id": "nihr_12121212121212121212121212121212",
+        "origin": "CONFENGE_WEB",
+        "acquisition_lane": "NET_NEW_INBOUND",
+        "intent_kind": "REQUEST_DEEP_DIVE",
+        "subject_ref": "prova-tecnica",
+        "inbound_only": true,
+        "outbound_eligible": false,
+        "auto_send": false,
+        "identity_authorization": "INBOUND_ONLY",
+        "evaluated_at": "2026-09-03T12:00:00Z"
+      },
+      "item": {
+        "action_id": "12121212-1212-1212-1212-121212121212",
+        "acquisition_channel": "confenge_web",
+        "company_ref": "prova-tecnica",
+        "company_name": "Prova Tecnica Engenharia Ltda",
+        "intent_reason": "REQUEST_DEEP_DIVE",
+        "reply_reason": "pediu apoio técnico para organizar prova pericial já existente",
+        "conversation_started": true,
+        "facts": {
+          "why_now": "pediu apoio técnico para organizar prova pericial já existente",
+          "factual_hook": "declarou que já existe material técnico, sem detalhe de processo",
+          "evidence_ids": [
+            "formulario-confenge-web"
+          ],
+          "stated_limits": [
+            "Não cite processo, parte ou empregado — só a classe de disponibilidade documental"
+          ]
+        },
+        "touchpoints": [
+          {
+            "ordinal": 1,
+            "channel": "confenge_web",
+            "state": "submitted",
+            "subject": "formulário público",
+            "sent_at": "2026-09-03T11:00:00Z"
+          }
+        ],
+        "next_action_type": "confirmar o recorte da prova que já existe",
+        "state": "call_needed",
+        "created_at": "2026-09-03T11:00:00Z"
+      }
+    }
+  ]
+}

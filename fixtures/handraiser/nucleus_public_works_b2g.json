@@ -16,36 +16,36 @@
   "auto_send": false,
   "offer_candidate": "private_project_technical_readiness_assessment",
   "private_asset": "private_project_technical_readiness_v1",
-  "qualification_state": "UNKNOWN",
+  "qualification_state": "ACCEPTED",
   "conflict": {
     "status": "CLEAR",
     "restriction": "NONE"
   },
-  "handraiser_id": "44444444-4444-4444-4444-444444444444",
+  "handraiser_id": "11111111-1111-1111-1111-111111111111",
   "origin": "CONFENGE_WEB",
-  "nucleus_id": "property_valuation",
-  "decision": "UNKNOWN",
-  "receipt": "rcpt_unknown_001",
+  "nucleus_id": "public_works_b2g",
+  "decision": "ACCEPTED",
+  "receipt": "rcpt_vertice_webinar_001",
   "identity": {
-    "inbound_ref": "patrimonio-sul",
+    "inbound_ref": "vertice-obras",
     "decision_role": "UNKNOWN"
   },
   "situation": {
-    "why_now": "pediu conversa sobre avaliação patrimonial de ativo próprio",
-    "problema": "quer entender o recorte de uma avaliação, sem valor inventado",
-    "urgency": "this_quarter",
-    "city_service_area_class": "interior_sp",
-    "desired_decision": "definir se há avaliação a discutir",
-    "document_availability_class": "unknown"
+    "why_now": "levantou a mão no webinar e pediu a chamada",
+    "problema": "quer fechar o escopo do primeiro ciclo em obra pública",
+    "urgency": "this_week",
+    "city_service_area_class": "municipio_sp",
+    "desired_decision": "fechar o escopo do primeiro ciclo",
+    "document_availability_class": "public_portal_only"
   },
   "permitted": {
     "facts": [
-      "inbound pelo site CONFENGE_WEB",
-      "mencionou ativo próprio, sem valor"
+      "levantou a mão no webinar e pediu a chamada",
+      "Executa contrato municipal de drenagem em vigência, informação do portal de transparência"
     ],
     "provenance": "warmbly_accepted_item",
     "owner_links": [
-      "https://owner.example.invalid/handraiser/44444444-4444-4444-4444-444444444444"
+      "https://owner.example.invalid/handraiser/11111111-1111-1111-1111-111111111111"
     ]
   },
   "freshness": {
@@ -54,16 +54,16 @@
   "admission": {
     "schema_version": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
     "policy_id": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
-    "decision": "UNKNOWN",
+    "decision": "ACCEPTED",
     "reason_codes": [
-      "FRESHNESS_UNKNOWN"
+      "ADMISSION_GATES_SATISFIED"
     ],
-    "receipt_id": "rcpt_unknown_001",
-    "logical_admission_id": "nihr_44444444444444444444444444444444",
+    "receipt_id": "rcpt_vertice_webinar_001",
+    "logical_admission_id": "nihr_11111111111111111111111111111111",
     "origin": "CONFENGE_WEB",
     "acquisition_lane": "NET_NEW_INBOUND",
     "intent_kind": "REQUEST_DEEP_DIVE",
-    "subject_ref": "patrimonio-sul",
+    "subject_ref": "vertice-obras",
     "inbound_only": true,
     "outbound_eligible": false,
     "auto_send": false,
@@ -71,21 +71,23 @@
     "evaluated_at": "2026-09-03T12:00:00Z"
   },
   "item": {
-    "action_id": "44444444-4444-4444-4444-444444444444",
+    "action_id": "11111111-1111-1111-1111-111111111111",
     "acquisition_channel": "confenge_web",
-    "company_ref": "patrimonio-sul",
-    "company_name": "Patrimonio Sul Consultoria Ltda",
+    "company_ref": "vertice-obras",
+    "company_name": "Vertice Obras e Infraestrutura Ltda",
     "intent_reason": "REQUEST_DEEP_DIVE",
-    "reply_reason": "pediu conversa sobre avaliação patrimonial de ativo próprio",
+    "reply_reason": "levantou a mão no webinar e pediu a chamada",
     "conversation_started": true,
     "facts": {
-      "why_now": "pediu conversa sobre avaliação patrimonial de ativo próprio",
-      "factual_hook": "mencionou ativo próprio, sem valor",
+      "why_now": "levantou a mão no webinar e pediu a chamada",
+      "factual_hook": "Executa contrato municipal de drenagem em vigência, informação do portal de transparência",
       "evidence_ids": [
-        "formulario-confenge-web"
+        "portal-transparencia",
+        "webinar-2026-07-15"
       ],
       "stated_limits": [
-        "Não afirme valor, área ou matrícula — o produtor não enviou esses fatos"
+        "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública",
+        "Não trate B2G como habilitação jurídica automática"
       ]
     },
     "touchpoints": [
@@ -97,7 +99,7 @@
         "sent_at": "2026-09-03T11:00:00Z"
       }
     ],
-    "next_action_type": "perguntar quais laudos já existem",
+    "next_action_type": "fechar o escopo do primeiro ciclo",
     "state": "call_needed",
     "created_at": "2026-09-03T11:00:00Z"
   }

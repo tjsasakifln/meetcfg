@@ -1,0 +1,24 @@
+{
+  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "handraiser_id": "16161616-1616-1616-1616-161616161616",
+  "origin": "CONFENGE_WEB",
+  "lane": "confenge_web",
+  "inbound_only": true,
+  "admission": {
+    "schema_version": "net-new-inbound-handraiser-admission.v1",
+    "policy_id": "NET_NEW_INBOUND_HANDRAISER",
+    "decision": "ACCEPTED",
+    "receipt_id": "rcpt_unpinned_001",
+    "origin": "CONFENGE_WEB",
+    "inbound_only": true,
+    "outbound_eligible": false,
+    "evaluated_at": "2026-09-03T12:00:00Z"
+  },
+  "item": {
+    "action_id": "16161616-1616-1616-1616-161616161616",
+    "acquisition_channel": "confenge_web",
+    "company_name": "Nao Deve Criar Sessao Ltda",
+    "intent_reason": "REQUEST_DEEP_DIVE",
+    "created_at": "2026-09-03T11:00:00Z"
+  }
+}
