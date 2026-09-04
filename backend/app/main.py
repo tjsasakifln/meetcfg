@@ -213,6 +213,13 @@ def _conversation_payload(session: meeting.MeetingSession) -> dict | None:
         "freshness": conv.get("freshness"),
         "status": conv.get("status"),
         "identity_ref": conv.get("identity_ref"),
+        "resumo": conv.get("resumo"),
+        "nucleo": conv.get("nucleo"),
+        "nucleo_id": conv.get("nucleo_id"),
+        "nucleo_problema": conv.get("nucleo_problema"),
+        "proximo_estado": conv.get("proximo_estado"),
+        "source": conv.get("source"),
+        "schema": conv.get("schema"),
     }
 
 
@@ -306,6 +313,12 @@ async def api_handraiser_get(handraiser_id: str):
         "freshness": conv.get("freshness"),
         "status": conv.get("status"),
         "inbound_only": rec.inbound_only,
+        "resumo": conv.get("resumo"),
+        "nucleo": conv.get("nucleo"),
+        "nucleo_id": conv.get("nucleo_id"),
+        "proximo_estado": conv.get("proximo_estado"),
+        "source": conv.get("source"),
+        "schema": conv.get("schema"),
     }
 
 
@@ -338,6 +351,12 @@ async def api_handraiser_select(body: SelectHandraiser) -> dict:
         "freshness": conv.get("freshness"),
         "status": conv.get("status"),
         "inbound_only": rec.inbound_only,
+        "resumo": conv.get("resumo"),
+        "nucleo": conv.get("nucleo"),
+        "nucleo_id": conv.get("nucleo_id"),
+        "proximo_estado": conv.get("proximo_estado"),
+        "source": conv.get("source"),
+        "schema": conv.get("schema"),
     }
 
 
