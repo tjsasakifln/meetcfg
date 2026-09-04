@@ -15,10 +15,12 @@ import hashlib
 import json
 import logging
 import re
+import ssl
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from .context import (
@@ -80,6 +82,12 @@ OVERSIZED = "OVERSIZED"
 MISSING_IDENTITY = "MISSING_IDENTITY"
 DOSSIER_INVALID = "DOSSIER_INVALID"
 NOT_FOUND = "NOT_FOUND"
+IDENTITY_CONFLICT = "IDENTITY_CONFLICT"
+PRODUCER_NOT_CONFIGURED = "PRODUCER_NOT_CONFIGURED"
+PRODUCER_UNREACHABLE = "PRODUCER_UNREACHABLE"
+PRODUCER_TIMEOUT = "PRODUCER_TIMEOUT"
+PRODUCER_UNAUTHORIZED = "PRODUCER_UNAUTHORIZED"
+PRODUCER_ERROR = "PRODUCER_ERROR"
 
 MAX_PAYLOAD_BYTES = 256_000
 SESSION_PREFIX = "hr:"
@@ -541,10 +549,18 @@ def render_conversation_layer(dossier: dict) -> dict:
 
     next_state = _str(offer.get("next_state")) or _str(dossier.get("next_state")) or UNKNOWN
     unknown = dossier.get("unknown") if isinstance(dossier.get("unknown"), list) else _missing_commercial(dossier)
+    freshness_src = dossier.get("freshness") if isinstance(dossier.get("freshness"), dict) else {}
+    freshness = _str(freshness_src.get("as_of")) or _str(dossier.get("source_as_of")) or UNKNOWN
+    canal = (
+        _str(dossier.get("acquisition_channel"))
+        or _str(dossier.get("lane"))
+        or UNKNOWN
+    )
 
     return {
         "empresa": _str(company.get("name")) or UNKNOWN,
         "por_que_chegou_agora": why,
+        "canal": canal,
         "intencao": _str(intent.get("kind")) or UNKNOWN,
         "fatos_verificaveis": facts,
         "o_que_nao_sabemos": unknown,
@@ -552,6 +568,8 @@ def render_conversation_layer(dossier: dict) -> dict:
         "ultimo_touch_outcome": last_touch,
         "proximo_estado_comercial": next_state,
         "inbound_only": dossier.get("inbound_only"),
+        "freshness": freshness,
+        "status": DECISION_ACCEPTED,
         "situacao": _str(dossier.get("situacao")) or UNKNOWN,
         "handraiser_id": _str(dossier.get("handraiser_id")),
         "lane": _str(dossier.get("lane")) or _str(dossier.get("acquisition_channel")),
@@ -575,6 +593,50 @@ def _receipt_of(dossier: dict, raw: dict) -> str:
     }
     blob = json.dumps(material, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+_SEQ_RECEIPT = re.compile(r"^(.*?)(\d+)$")
+
+
+def _receipt_rank(receipt: str, dossier: dict) -> tuple[float, int]:
+    """Monotonic rank: (source_as_of, sequential suffix). Opaque hashes use as_of only."""
+    as_of = _parse_instant(dossier.get("source_as_of"))
+    freshness = dossier.get("freshness") if isinstance(dossier.get("freshness"), dict) else {}
+    if as_of is None:
+        as_of = _parse_instant(freshness.get("as_of"))
+    ts = as_of.timestamp() if as_of else 0.0
+    s = receipt or ""
+    m = _SEQ_RECEIPT.match(s)
+    if m and (s.startswith("rcpt_") or "_" in s):
+        try:
+            return ts, int(m.group(2))
+        except ValueError:
+            return ts, 0
+    return ts, 0
+
+
+def _is_older_receipt(receipt: str, dossier: dict, existing: AcceptedRecord) -> bool:
+    incoming = _receipt_rank(receipt, dossier)
+    held = _receipt_rank(existing.receipt, existing.dossier)
+    return incoming < held
+
+
+def _identity_key(dossier: dict) -> tuple[str, str, str]:
+    company = dossier.get("company") if isinstance(dossier.get("company"), dict) else {}
+    ref = _str(dossier.get("identity_ref")) or _str(company.get("identity_ref"))
+    account = _str(dossier.get("account_id"))
+    cnpj = _str(company.get("cnpj")) if looks_like_cnpj(company.get("cnpj")) else ""
+    return ref, account, cnpj
+
+
+def _identity_conflict(existing: dict, incoming: dict) -> bool:
+    """Same handraiser_id with two filled-and-different identity refs fails closed."""
+    a = _identity_key(existing)
+    b = _identity_key(incoming)
+    for left, right in zip(a, b):
+        if left and right and left != right:
+            return True
+    return False
 
 
 def _size_of(payload, raw_size: int | None) -> int:
@@ -618,6 +680,9 @@ class ConsumeResult:
             body["intencao"] = self.conversation.get("intencao")
             body["proximo_estado_comercial"] = self.conversation.get("proximo_estado_comercial")
             body["por_que_chegou_agora"] = self.conversation.get("por_que_chegou_agora")
+            body["canal"] = self.conversation.get("canal")
+            body["freshness"] = self.conversation.get("freshness")
+            body["status"] = self.conversation.get("status")
         return body
 
 
@@ -650,6 +715,9 @@ class ReceiptStore:
 
     def ids(self) -> list[str]:
         return list(self._by_id)
+
+    def records(self) -> list[AcceptedRecord]:
+        return list(self._by_id.values())
 
 
 _store = ReceiptStore()
@@ -820,6 +888,22 @@ def consume(
             inbound_only=existing.inbound_only,
         )
 
+    if existing is not None and _identity_conflict(existing.dossier, dossier):
+        log.info("handraiser consume failed reason=%s handraiser_id=%s", IDENTITY_CONFLICT, hid)
+        return _fail(IDENTITY_CONFLICT, handraiser_id=hid, session_id=existing.session_id)
+
+    if existing is not None and _is_older_receipt(receipt, dossier, existing):
+        if bind_session:
+            _bind(existing)
+        log.info("handraiser consume ignored out-of-order receipt handraiser_id=%s session_id=%s version=%s",
+                 hid, existing.session_id, existing.version)
+        return ConsumeResult(
+            ok=True, reason="", session_id=existing.session_id, handraiser_id=hid,
+            receipt=existing.receipt, version=existing.version, updated=False,
+            replayed=False, dossier=existing.dossier, conversation=existing.conversation,
+            inbound_only=existing.inbound_only,
+        )
+
     version = (existing.version + 1) if existing is not None else 1
     session_id = existing.session_id if existing is not None else session_id_for(hid)
     record = AcceptedRecord(
@@ -851,8 +935,13 @@ def _bind(record: AcceptedRecord) -> None:
     session.handraiser_version = record.version
 
 
-def context_for_session(session, *, refresh: bool = True, enabled: bool = True) -> dict | None:
-    """Dossier bound to this meeting, optionally re-read from the producer."""
+def context_for_session(session, *, refresh: bool = False, enabled: bool = True) -> dict | None:
+    """Dossier bound to this meeting.
+
+    `refresh` is ignored on purpose: the producer is never fetched on a copilot
+    tick. Call refresh_conversations() from startup or the explicit control.
+    """
+    del refresh, enabled  # orientation path is memory-only; flags kept for callers
     hid = getattr(session, "handraiser_id", None)
     if not hid:
         meeting_id = getattr(session, "meeting_id", "") or ""
@@ -865,53 +954,368 @@ def context_for_session(session, *, refresh: bool = True, enabled: bool = True) 
     if rec is None:
         bound = getattr(session, "handraiser_context", None)
         return bound if isinstance(bound, dict) else None
-    if refresh and enabled:
-        refresh_from_producer(hid, store=get_store())
-        rec = get_store().get(hid) or rec
-        session.handraiser_context = rec.dossier
-        session.handraiser_version = rec.version
+    session.handraiser_context = rec.dossier
+    session.handraiser_version = rec.version
     return rec.dossier
 
 
-def refresh_from_producer(handraiser_id: str, *, store: ReceiptStore | None = None,
-                          url: str | None = None, timeout: float = 3.0) -> str:
-    """Re-read Warmbly. Collection is never treated as a dossier.
+class ProducerTransportError(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
-    Returns a reason string when the producer was unreachable or unusable;
-    empty string on success or when no producer URL is configured.
+
+def _redact_url(url: str) -> str:
+    """Host+path only. Query, fragment, and userinfo never reach logs."""
+    try:
+        p = urlsplit(url)
+    except ValueError:
+        return ""
+    host = p.hostname or ""
+    if p.port:
+        host = f"{host}:{p.port}"
+    return urlunsplit((p.scheme, host, p.path, "", ""))
+
+
+def producer_headers(token: str = "") -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    tok = (token or "").strip()
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    return headers
+
+
+def default_transport(url: str, headers: dict, timeout: float) -> tuple[int, bytes]:
+    """TLS-verified GET. Never logs headers, body, or token."""
+    ctx = ssl.create_default_context()
+    req = Request(url, headers=headers, method="GET")
+    try:
+        with urlopen(req, timeout=timeout, context=ctx) as resp:  # noqa: S310 - operator URL
+            return int(resp.getcode() or 200), resp.read()
+    except HTTPError as e:
+        body = b""
+        try:
+            body = e.read() or b""
+        except Exception:  # noqa: BLE001
+            body = b""
+        return int(e.code), body
+    except TimeoutError as e:
+        raise ProducerTransportError(PRODUCER_TIMEOUT) from e
+    except URLError as e:
+        reason = e.reason
+        if isinstance(reason, TimeoutError) or "timed out" in str(e).lower():
+            raise ProducerTransportError(PRODUCER_TIMEOUT) from e
+        raise ProducerTransportError(PRODUCER_UNREACHABLE) from e
+    except OSError as e:
+        raise ProducerTransportError(PRODUCER_UNREACHABLE) from e
+
+
+def _settings_attr(name: str, default=""):
+    try:
+        from ..config import settings
+        return getattr(settings, name, default)
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def producer_url(*, url: str | None = None, base_url: str | None = None,
+                 path: str | None = None, organization_id: str | None = None) -> str:
+    full = (url if url is not None else _settings_attr("warmbly_sales_context_url", "")).strip()
+    if full:
+        target = full
+    else:
+        base = (base_url if base_url is not None else _settings_attr("warmbly_base_url", "")).strip().rstrip("/")
+        if not base:
+            return ""
+        rel = (path if path is not None else _settings_attr("warmbly_sales_context_path", "/confenge/sales-context")) or "/confenge/sales-context"
+        if not rel.startswith("/"):
+            rel = "/" + rel
+        target = base + rel
+    org = organization_id if organization_id is not None else _settings_attr("warmbly_organization_id", "")
+    org = (org or "").strip()
+    if org:
+        p = urlsplit(target)
+        q = dict(parse_qsl(p.query, keep_blank_values=True))
+        q.setdefault("organization_id", org)
+        target = urlunsplit((p.scheme, p.netloc, p.path, urlencode(q), p.fragment))
+    return target
+
+
+def producer_configured(*, url: str | None = None, base_url: str | None = None) -> bool:
+    return bool(producer_url(url=url, base_url=base_url))
+
+
+@dataclass
+class RefreshResult:
+    ok: bool
+    reason: str = ""
+    accepted: int = 0
+    refused: int = 0
+    schema: str | None = None
+    configured: bool = False
+    conversations: list = field(default_factory=list)
+
+    def as_http(self) -> dict:
+        return {
+            "ok": self.ok,
+            "reason": self.reason,
+            "accepted": self.accepted,
+            "refused": self.refused,
+            "schema": self.schema,
+            "configured": self.configured,
+            "conversations": self.conversations,
+            "fetch": get_fetch_state(),
+        }
+
+
+_fetch_state: dict[str, Any] = {
+    "configured": False,
+    "ok": False,
+    "reason": PRODUCER_NOT_CONFIGURED,
+    "at": None,
+    "accepted": 0,
+    "schema": None,
+}
+
+
+def get_fetch_state() -> dict:
+    """Public fetch status. Never includes token, URL userinfo, or payload."""
+    return {
+        "configured": bool(_fetch_state.get("configured")),
+        "ok": bool(_fetch_state.get("ok")),
+        "reason": _fetch_state.get("reason") or "",
+        "at": _fetch_state.get("at"),
+        "accepted": int(_fetch_state.get("accepted") or 0),
+        "schema": _fetch_state.get("schema"),
+    }
+
+
+def reset_fetch_state() -> None:
+    _fetch_state.update(
+        configured=False, ok=False, reason=PRODUCER_NOT_CONFIGURED,
+        at=None, accepted=0, schema=None,
+    )
+
+
+def list_conversations(store: ReceiptStore | None = None) -> list[dict]:
+    """Short accepted list for the copilot picker. Not a CRM."""
+    store = store if store is not None else get_store()
+    rows: list[tuple[str, dict]] = []
+    for rec in store.records():
+        conv = rec.conversation or {}
+        rows.append((rec.accepted_at, {
+            "handraiser_id": rec.handraiser_id,
+            "session_id": rec.session_id,
+            "empresa": conv.get("empresa") or UNKNOWN,
+            "canal": conv.get("canal") or conv.get("lane") or UNKNOWN,
+            "intencao": conv.get("intencao") or UNKNOWN,
+            "inbound_only": rec.inbound_only,
+            "freshness": conv.get("freshness") or UNKNOWN,
+            "status": conv.get("status") or DECISION_ACCEPTED,
+            "version": rec.version,
+        }))
+    rows.sort(key=lambda x: x[0], reverse=True)
+    return [row for _, row in rows]
+
+
+def consume_export(
+    payload,
+    *,
+    enabled: bool = True,
+    store: ReceiptStore | None = None,
+    now: datetime | None = None,
+    bind_session: bool = False,
+) -> RefreshResult:
+    """Admit items from a canonical export. Mis-tagged collection fails closed."""
+    store = store if store is not None else get_store()
+    now = now or datetime.now(timezone.utc)
+    conversations = lambda: list_conversations(store)
+    if not enabled:
+        return RefreshResult(ok=False, reason=CONSUMER_DISABLED, conversations=conversations())
+    doc = _unwrap(payload)
+    if not isinstance(doc, dict):
+        return RefreshResult(ok=False, reason=MALFORMED, conversations=conversations())
+    if is_collection(doc):
+        tag = doc.get("schema")
+        if tag != SCHEMA_EXPORT:
+            log.info("handraiser export refused reason=%s", SCHEMA_MISMATCH_COLLECTION)
+            return RefreshResult(
+                ok=False, reason=SCHEMA_MISMATCH_COLLECTION, schema=str(tag) if tag else None,
+                conversations=conversations(),
+            )
+        items = doc.get("items") if isinstance(doc.get("items"), list) else []
+        accepted = 0
+        refused = 0
+        for it in items:
+            result = consume(it, enabled=True, store=store, now=now, bind_session=bind_session)
+            if result.ok:
+                accepted += 1
+            else:
+                refused += 1
+        return RefreshResult(
+            ok=True, reason="", accepted=accepted, refused=refused,
+            schema=SCHEMA_EXPORT, conversations=conversations(),
+        )
+    result = consume(doc, enabled=True, store=store, now=now, bind_session=bind_session)
+    if result.ok:
+        return RefreshResult(
+            ok=True, reason="", accepted=1, refused=0,
+            schema=_str(doc.get("schema")) or None, conversations=conversations(),
+        )
+    return RefreshResult(
+        ok=False, reason=result.reason, accepted=0, refused=1,
+        schema=_str(doc.get("schema")) or None, conversations=conversations(),
+    )
+
+
+def refresh_conversations(
+    *,
+    enabled: bool = True,
+    store: ReceiptStore | None = None,
+    now: datetime | None = None,
+    url: str | None = None,
+    token: str | None = None,
+    timeout: float | None = None,
+    retries: int | None = None,
+    transport: Callable[..., tuple[int, bytes]] | None = None,
+    organization_id: str | None = None,
+    base_url: str | None = None,
+    bind_session: bool = False,
+) -> RefreshResult:
+    """Explicit producer pull. Never called per copilot orientation.
+
+    Last-known-good is the in-memory store: a failed fetch does not wipe
+    already-accepted conversations. Nothing is written to disk.
     """
     store = store if store is not None else get_store()
-    if not url:
+    now = now or datetime.now(timezone.utc)
+    target = producer_url(url=url, base_url=base_url, organization_id=organization_id)
+    tok = token if token is not None else _settings_attr("warmbly_token", "")
+    configured = bool(target)
+    _fetch_state["configured"] = configured
+    _fetch_state["at"] = now.isoformat()
+
+    if not enabled:
+        _fetch_state.update(ok=False, reason=CONSUMER_DISABLED, schema=None)
+        return RefreshResult(
+            ok=False, reason=CONSUMER_DISABLED, configured=configured,
+            conversations=list_conversations(store),
+        )
+    if not target:
+        _fetch_state.update(ok=False, reason=PRODUCER_NOT_CONFIGURED, schema=None)
+        return RefreshResult(
+            ok=False, reason=PRODUCER_NOT_CONFIGURED, configured=False,
+            conversations=list_conversations(store),
+        )
+
+    if timeout is None:
         try:
-            from ..config import settings
-            url = getattr(settings, "warmbly_sales_context_url", "") or ""
-        except Exception:  # noqa: BLE001
-            url = ""
-    url = (url or "").strip()
-    if not url:
-        return ""
-    target = url.replace("{id}", handraiser_id).replace("{action_id}", handraiser_id)
+            timeout = float(_settings_attr("warmbly_fetch_timeout_s", 3.0) or 3.0)
+        except (TypeError, ValueError):
+            timeout = 3.0
+    if retries is None:
+        try:
+            retries = int(_settings_attr("warmbly_fetch_retries", 1) or 0)
+        except (TypeError, ValueError):
+            retries = 1
+    transport = transport or default_transport
+    attempts = max(1, int(retries) + 1)
+    headers = producer_headers(str(tok or ""))
+    last_reason = PRODUCER_UNREACHABLE
+    status = None
+    raw = b""
+    for _ in range(attempts):
+        try:
+            status, raw = transport(target, headers, float(timeout))
+        except ProducerTransportError as e:
+            last_reason = e.reason
+            if e.reason not in (PRODUCER_TIMEOUT, PRODUCER_UNREACHABLE, PRODUCER_ERROR):
+                break
+            continue
+        if status in (401, 403):
+            last_reason = PRODUCER_UNAUTHORIZED
+            break
+        if status is not None and status >= 500:
+            last_reason = PRODUCER_ERROR
+            continue
+        if status != 200:
+            last_reason = PRODUCER_ERROR
+            break
+        last_reason = ""
+        break
+
+    log.info("handraiser producer fetch reason=%s status=%s url=%s",
+             last_reason or "ok", status, _redact_url(target))
+    if last_reason:
+        _fetch_state.update(ok=False, reason=last_reason, schema=None)
+        return RefreshResult(
+            ok=False, reason=last_reason, configured=True,
+            conversations=list_conversations(store),
+        )
     try:
-        req = Request(target, headers={"Accept": "application/json"})
-        with urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator-configured URL
-            raw = resp.read()
-    except (HTTPError, URLError, TimeoutError, OSError) as e:
-        log.info("handraiser producer unread reason=PRODUCER_UNREACHABLE handraiser_id=%s", handraiser_id)
-        return f"PRODUCER_UNREACHABLE:{type(e).__name__}"
+        payload = json.loads((raw or b"").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _fetch_state.update(ok=False, reason=MALFORMED, schema=None)
+        return RefreshResult(
+            ok=False, reason=MALFORMED, configured=True,
+            conversations=list_conversations(store),
+        )
+
+    result = consume_export(payload, enabled=True, store=store, now=now, bind_session=bind_session)
+    result.configured = True
+    _fetch_state.update(
+        ok=result.ok, reason=result.reason, accepted=result.accepted, schema=result.schema,
+    )
+    return result
+
+
+def refresh_from_producer(handraiser_id: str, *, store: ReceiptStore | None = None,
+                          url: str | None = None, timeout: float = 3.0,
+                          transport: Callable[..., tuple[int, bytes]] | None = None,
+                          token: str | None = None) -> str:
+    """Re-read one item. Collection is never treated as a dossier.
+
+    A mis-tagged collection (Warmbly still labeling the export as the dossier
+    schema) fails closed with SCHEMA_MISMATCH_COLLECTION — items are not picked
+    out of a colliding envelope. Canonical SCHEMA_EXPORT may yield the matching
+    item. Returns a reason string, or empty on success / when no URL is set.
+    """
+    store = store if store is not None else get_store()
+    target = producer_url(url=url)
+    if not target:
+        return ""
+    target = target.replace("{id}", handraiser_id).replace("{action_id}", handraiser_id)
+    tok = token if token is not None else _settings_attr("warmbly_token", "")
+    try:
+        status, raw = (transport or default_transport)(
+            target, producer_headers(str(tok or "")), timeout,
+        )
+    except ProducerTransportError as e:
+        log.info("handraiser producer unread reason=%s", e.reason)
+        return e.reason
+    if status in (401, 403):
+        return PRODUCER_UNAUTHORIZED
+    if status != 200:
+        return PRODUCER_ERROR if (status or 0) >= 500 else PRODUCER_UNREACHABLE
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return SCHEMA_MISMATCH
     doc = _unwrap(payload)
     if is_collection(doc) and isinstance(doc, dict):
+        if doc.get("schema") != SCHEMA_EXPORT:
+            log.info("handraiser producer collection refused reason=%s", SCHEMA_MISMATCH_COLLECTION)
+            return SCHEMA_MISMATCH_COLLECTION
         items = doc.get("items") if isinstance(doc.get("items"), list) else []
         match = None
         for it in items:
-            if isinstance(it, dict) and _str(it.get("action_id")) == handraiser_id:
+            if not isinstance(it, dict):
+                continue
+            if _str(it.get("action_id")) == handraiser_id or _str(it.get("handraiser_id")) == handraiser_id:
                 match = it
                 break
         if match is None:
-            log.info("handraiser producer collection had no item handraiser_id=%s", handraiser_id)
+            log.info("handraiser producer collection had no item")
             return NOT_FOUND
         doc = match
     result = consume(doc, enabled=True, store=store, bind_session=True)

@@ -40,7 +40,14 @@ FIELDS: list[Field] = [
     Field("handraiser_max_payload_bytes", "HANDRAISER_MAX_PAYLOAD_BYTES", int, 256000),
     Field("handraiser_freshness_max_age_s", "HANDRAISER_FRESHNESS_MAX_AGE_S", float, 0.0),
     # Optional read-only producer. Collection responses are never treated as a dossier.
+    # Full URL wins when set; otherwise WARMBLY_BASE_URL + path. Token is backend-only.
     Field("warmbly_sales_context_url", "WARMBLY_SALES_CONTEXT_URL", str, ""),
+    Field("warmbly_base_url", "WARMBLY_BASE_URL", str, ""),
+    Field("warmbly_token", "WARMBLY_TOKEN", str, ""),
+    Field("warmbly_organization_id", "WARMBLY_ORGANIZATION_ID", str, ""),
+    Field("warmbly_sales_context_path", "WARMBLY_SALES_CONTEXT_PATH", str, "/confenge/sales-context"),
+    Field("warmbly_fetch_timeout_s", "WARMBLY_FETCH_TIMEOUT_S", float, 3.0),
+    Field("warmbly_fetch_retries", "WARMBLY_FETCH_RETRIES", int, 1),
     # Skip whisper preload (TestClient / machines without the model).
     Field("whisper_warmup", "WHISPER_WARMUP", bool, True),
     # whisper (faster-whisper, local). CPU/int8 by default: no GPU assumed.

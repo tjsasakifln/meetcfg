@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      WHISPER_WARMUP: "false"
+      HANDRAISER_CONSUMER_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CI Python deps (no Codex, no live Warmbly, no whisper model)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "fastapi>=0.115.0" \
+            "uvicorn[standard]>=0.30.0" \
+            "httpx>=0.27.0" \
+            "numpy>=1.26.0" \
+            "websockets>=12.0"
+      - name: Syntax
+        run: python -m compileall -q backend
+      - name: Unit / self-tests
+        run: |
+          python backend/tools/parse_selftest.py
+          python backend/tools/echo_selftest.py
+          python backend/tools/context_selftest.py
+          python backend/tools/transformation_selftest.py
+          python backend/tools/handraiser_selftest.py
+      - name: Secret / PII fixture guard
+        run: |
+          set -e
+          if grep -R -n -E 'WARMBLY_TOKEN|api[_-]?key|Bearer [A-Za-z0-9._-]{8,}' frontend; then
+            echo "frontend must not contain producer secrets" >&2
+            exit 1
+          fi
+          if grep -R -n -E 'sk-[A-Za-z0-9]{10,}|whsec_[A-Za-z0-9]+' fixtures backend/app frontend; then
+            echo "committed secret-shaped token" >&2
+            exit 1
+          fi
+          echo "PII_FIXTURE_GUARD=PASS"
+      - name: Frontend static
+        run: |
+          test -f frontend/index.html
+          test -f frontend/static/app.js
+          grep -q 'Atualizar conversas' frontend/index.html
+          grep -q 'script src="/static/app.js"' frontend/index.html
+          ! grep -q 'module.exports' frontend/static/app.js
+          ! grep -q 'require(' frontend/static/app.js
+          echo "FRONTEND_STATIC=PASS"

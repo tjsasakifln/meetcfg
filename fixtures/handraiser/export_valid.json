@@ -1,0 +1,46 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT_EXPORT/1.0",
+  "organization_id": "550e8400-e29b-41d4-a716-446655440000",
+  "generated_at": "2026-09-03T15:30:00Z",
+  "total": 2,
+  "by_engine": {"confenge_web": 2},
+  "unattributed": 0,
+  "items": [
+    {
+      "action_id": "11111111-1111-1111-1111-111111111111",
+      "account_id": "22222222-2222-2222-2222-222222222222",
+      "acquisition_channel": "confenge_web",
+      "company_ref": "vertice-obras",
+      "company_name": "Vertice Obras e Infraestrutura Ltda",
+      "intent_reason": "REQUEST_DEEP_DIVE",
+      "conversation_started": true,
+      "facts": {
+        "why_now": "levantou a mão no webinar e pediu a chamada",
+        "factual_hook": "contrato municipal vigente no portal de transparência",
+        "stated_limits": ["Não afirme valor do contrato municipal atual"]
+      },
+      "next_action_type": "fechar o escopo do primeiro ciclo",
+      "state": "call_needed",
+      "created_at": "2026-09-03T11:00:00Z",
+      "decision": "ACCEPTED"
+    },
+    {
+      "action_id": "66666666-6666-6666-6666-666666666666",
+      "account_id": "77777777-7777-7777-7777-777777777777",
+      "acquisition_channel": "confenge_web",
+      "company_ref": "acme-holdings",
+      "company_name": "Acme Holdings Engenharia Ltda",
+      "intent_reason": "MEETING_OR_PROPOSAL_REQUEST",
+      "conversation_started": false,
+      "facts": {
+        "why_now": "pediu reunião pelo formulário",
+        "factual_hook": "empresa citada no portal de transparência com contrato vigente",
+        "stated_limits": ["Não afirme CNPJ: o produtor enviou só company_ref"]
+      },
+      "next_action_type": "call_needed",
+      "state": "awaiting_human",
+      "created_at": "2026-09-03T10:00:00Z",
+      "decision": "ACCEPTED"
+    }
+  ]
+}
