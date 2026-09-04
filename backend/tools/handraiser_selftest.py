@@ -34,14 +34,17 @@ from app.copilot.engine import (  # noqa: E402
 )
 from app.copilot.handraiser import (  # noqa: E402
     CONSUMER_DISABLED, FRESHNESS_INVALID, FRESHNESS_STALE, IDENTITY_CONFLICT,
-    MALFORMED, MISSING_IDENTITY, OVERSIZED, PRODUCER_ERROR,
-    PRODUCER_NOT_CONFIGURED, PRODUCER_TIMEOUT, PRODUCER_UNAUTHORIZED,
-    REJECTED_WITH_REASON, SCHEMA_EXPORT, SCHEMA_MISMATCH,
-    SCHEMA_MISMATCH_COLLECTION, UNKNOWN_OUTCOME, WARMBLY_ITEM_KEYS,
-    ProducerTransportError, ReceiptStore, assert_no_invented_fields,
-    classify_payload, consume, consume_export, get_fetch_state, get_store,
-    producer_configured, prompt_safety_ok, render_conversation_layer,
-    refresh_conversations, reset_fetch_state, reset_store, session_id_for,
+    MALFORMED, MISSING_CONFLICT_CLEARANCE, MISSING_IDENTITY, NUCLEI,
+    NUCLEUS_LABELS, NUCLEUS_UNKNOWN, OFFER_CANDIDATE, OVERSIZED, PIN_HASH,
+    PINNED_CONTRACTS, PRODUCER_ERROR, PRODUCER_NOT_CONFIGURED,
+    PRODUCER_TIMEOUT, PRODUCER_UNAUTHORIZED, REJECTED_WITH_REASON,
+    SCHEMA_CONTEXT, SCHEMA_EXPORT, SCHEMA_MISMATCH, SCHEMA_MISMATCH_COLLECTION,
+    SCHEMA_PIN_MISMATCH, SCHEMA_UNPINNED, SOURCE_LANE, UNKNOWN_OUTCOME,
+    WARMBLY_ITEM_KEYS, crm_side_effect_keys, ProducerTransportError,
+    ReceiptStore, assert_no_invented_fields, classify_payload, consume,
+    consume_export, get_fetch_state, get_store, producer_configured,
+    prompt_safety_ok, render_conversation_layer, refresh_conversations,
+    reset_fetch_state, reset_store, session_id_for,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -66,7 +69,27 @@ UX_FIELDS = (
     "status",
     "inbound-only",
     "Atualizar conversas",
+    "resumo",
+    "núcleo e problema",
+    "o que já se sabe",
+    "o que é UNKNOWN",
+    "perguntas sugeridas",
+    "limites/conflito",
+    "próximo estado",
+    "evidência técnica disponível",
+    "detalhe técnico",
+    "ID técnico",
 )
+
+NUCLEUS_FILES = (
+    "nucleus_expert_evidence_assistance.json",
+    "nucleus_property_valuation.json",
+    "nucleus_building_engineering_documentation.json",
+    "nucleus_occupational_safety.json",
+    "nucleus_public_works_b2g.json",
+)
+
+EXPECTED_PIN_HASH = "300a5970bbb5fc9c50682b67911e4fd067839e2c0c7de5fbc05ed05a076bffd5"
 
 PII_SAMPLES = (
     "visitor@example.com",
@@ -74,6 +97,8 @@ PII_SAMPLES = (
     "Visitante Exemplo",
     "123.456.789-00",
     "raw_message_secret_body",
+    "processo 0001234-55.2024.8.26.0100",
+    "empregado João da Silva",
 )
 
 
@@ -124,6 +149,12 @@ def print_markers() -> None:
     print("CONTEXT_REBUILD_MANUAL_REQUIRED=NO")
     print("MEETCFG_HANDRAISER_CONSUMER=GO")
     print("MEETCFG_ISSUE_1=GO")
+    print("MEETCFG_HANDRAISER_CONTEXT=MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904")
+    print("SCHEMA_PIN=MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904")
+    print("FIVE_NUCLEI_ACCEPTED=PASS")
+    print("UNPINNED_FAIL_CLOSED=PASS")
+    print("MISSING_CONFLICT_CLEARANCE=PASS")
+    print("NO_CRM_SIDE_EFFECT=PASS")
 
 
 def _capture_logs():
@@ -193,7 +224,57 @@ def test_accepted():
     check("confidence not copied as fact",
           any("historical_fit" in str(x) for x in result.dossier.get("public_facts") or []),
           False)
+    check("pin schema", result.conversation.get("schema"), SCHEMA_CONTEXT)
+    check("pin hash", result.conversation.get("schema_hash"), EXPECTED_PIN_HASH)
+    check("nucleus public_works label", result.conversation.get("nucleo"),
+          "Obras públicas (B2G)")
+    check("resumo is not the technical id",
+          result.conversation.get("resumo") == result.handraiser_id, False)
+    check("source lane", result.conversation.get("source"), SOURCE_LANE)
+    check("offer candidate", result.conversation.get("offer_candidate"), OFFER_CANDIDATE)
+    check("outbound_eligible false", result.conversation.get("outbound_eligible"), False)
+    check("auto_send false", result.conversation.get("auto_send"), False)
+    check("no CRM keys on dossier", crm_side_effect_keys(result.dossier), [])
+    check("no CRM keys on conversation", crm_side_effect_keys(result.conversation), [])
     return result
+
+
+def test_multivertical_nuclei():
+    print("five nuclei accepted; mapping + UNKNOWN preserved; no CRM")
+    check("shipped PIN_HASH matches spec digest", PIN_HASH, EXPECTED_PIN_HASH)
+    check("pinned context id", PINNED_CONTRACTS["context"], SCHEMA_CONTEXT)
+    store = ReceiptStore()
+    seen_sessions = set()
+    for name in NUCLEUS_FILES:
+        payload = load_fx(name)
+        nucleus = payload["nucleus_id"]
+        result = consume(payload, store=store, now=NOW, bind_session=False)
+        check(f"{nucleus} ok", result.ok, True)
+        check(f"{nucleus} session", bool(result.session_id), True)
+        check(f"{nucleus} id in NUCLEI", nucleus in NUCLEI, True)
+        check(f"{nucleus} label", result.conversation.get("nucleo"), NUCLEUS_LABELS[nucleus])
+        check(f"{nucleus} resumo present", bool(result.conversation.get("resumo")), True)
+        check(f"{nucleus} resumo is not id",
+              result.conversation.get("resumo") == result.handraiser_id, False)
+        check(f"{nucleus} source", result.conversation.get("source"), SOURCE_LANE)
+        check(f"{nucleus} offer", result.conversation.get("offer_candidate"), OFFER_CANDIDATE)
+        check(f"{nucleus} conflict visible as class",
+              result.conversation.get("conflict_status") in ("CLEAR", "RESTRICTED"), True)
+        check(f"{nucleus} UNKNOWN list is a list",
+              isinstance(result.conversation.get("o_que_e_unknown"), list), True)
+        check(f"{nucleus} perguntas from gaps",
+              isinstance(result.conversation.get("perguntas_sugeridas"), list), True)
+        check(f"{nucleus} evidência is list",
+              isinstance(result.conversation.get("evidencia_tecnica"), list), True)
+        check(f"{nucleus} id only in detalhe",
+              result.conversation.get("detalhe", {}).get("handraiser_id"),
+              result.handraiser_id)
+        check(f"{nucleus} no CRM", crm_side_effect_keys(result.dossier), [])
+        check(f"{nucleus} outbound false", result.dossier.get("outbound_eligible"), False)
+        check(f"{nucleus} auto_send false", result.dossier.get("auto_send"), False)
+        seen_sessions.add(result.session_id)
+    check("five distinct logical sessions", len(seen_sessions), 5)
+    check("store size 5", len(store), 5)
 
 
 def test_inbound_only_net_new():
@@ -212,7 +293,7 @@ def test_inbound_only_net_new():
 
 
 def test_fail_closed():
-    print("rejected / UNKNOWN / stale / invalid freshness / drift fail closed")
+    print("rejected / UNKNOWN / stale / invalid freshness / drift / pin / conflict fail closed")
     for name, reason in (
         ("rejected.json", REJECTED_WITH_REASON),
         ("unknown.json", UNKNOWN_OUTCOME),
@@ -220,6 +301,12 @@ def test_fail_closed():
         ("invalid_freshness.json", FRESHNESS_INVALID),
         ("schema_drift.json", SCHEMA_MISMATCH),
         ("malformed.json", MALFORMED),
+        ("unpinned_legacy.json", SCHEMA_UNPINNED),
+        ("native_warmbly_item.json", SCHEMA_UNPINNED),
+        ("missing_hash.json", SCHEMA_UNPINNED),
+        ("pin_mismatch.json", SCHEMA_PIN_MISMATCH),
+        ("missing_conflict.json", MISSING_CONFLICT_CLEARANCE),
+        ("unknown_nucleus.json", NUCLEUS_UNKNOWN),
     ):
         store = ReceiptStore()
         result = consume(load_fx(name), store=store, now=NOW, bind_session=True)
@@ -239,11 +326,16 @@ def test_replay_and_update():
     for _ in range(99):
         r = consume(payload, store=store, now=NOW, bind_session=True)
         ids.add(r.session_id)
-        replayed += 1 if r.ok and r.replayed and r.session_id == first.session_id else 0
+        replayed += 1 if (
+            r.ok and r.replayed and r.session_id == first.session_id
+            and r.receipt == first.receipt
+        ) else 0
     check("99 replays ok and same session", replayed, 99)
     check("100× unique session count", len(ids), 1)
     check("store still 1", len(store), 1)
     check("version still 1 after replay", store.get(first.handraiser_id).version, 1)
+    check("original receipt preserved", store.get(first.handraiser_id).receipt, first.receipt)
+    check("original receipt value", first.receipt, "rcpt_vertice_webinar_001")
 
     updated_payload = json.loads(json.dumps(payload))
     updated_payload["admission"]["receipt_id"] = "rcpt_vertice_webinar_002"
@@ -275,32 +367,17 @@ def test_cnpj_ref_and_native():
     extra_keys = [k for k in native_payload if k not in WARMBLY_ITEM_KEYS]
     check("native fixture keys ⊆ Warmbly SalesContextItem", extra_keys, [])
     native = consume(native_payload, store=ReceiptStore(), now=NOW, bind_session=False)
-    check("native item ok", native.ok, True)
-    check("native company", native.conversation["empresa"],
-          "Acme Holdings Engenharia Ltda")
-    check("native channel mapped inbound",
-          native.dossier["acquisition_channel"], "INBOUND_LIVE")
-    check("native lane preserved", native.dossier["lane"], "confenge_web")
-    check("native cnpj not invented", native.dossier["company"].get("cnpj"), None)
-    check("native ref", native.dossier.get("identity_ref"), "acme-holdings")
-    check("native inbound_only not invented", "inbound_only" in native.dossier, False)
-    check("native person_name is not empresa",
-          native.conversation["empresa"] == native_payload.get("person_name"), False)
-    check("native person_name not cargo/decisor",
-          "cargo" in native.dossier or "decisor" in native.dossier, False)
-    check("native no invented fields", assert_no_invented_fields(native.dossier), [])
-    check("native confidence not a public fact",
-          any("historical_fit" in str(x) for x in native.dossier.get("public_facts") or []),
-          False)
+    check("native unpinned fail-closed", native.ok, False)
+    check("native unpinned reason", native.reason, SCHEMA_UNPINNED)
+    check("native unpinned no session", native.session_id, None)
 
     wrapped_item = consume({"data": native_payload}, store=ReceiptStore(), now=NOW,
                            bind_session=False)
-    check("HTTP {data: native item} ok", wrapped_item.ok, True)
-    check("HTTP wrap same company", wrapped_item.conversation["empresa"],
-          "Acme Holdings Engenharia Ltda")
+    check("HTTP {data: native item} unpinned", wrapped_item.reason, SCHEMA_UNPINNED)
+    check("HTTP wrap no session", wrapped_item.session_id, None)
 
-    nil_account = json.loads(json.dumps(native_payload))
-    nil_account["account_id"] = "00000000-0000-0000-0000-000000000000"
+    nil_account = json.loads(json.dumps(load_fx("accepted.json")))
+    nil_account["item"]["account_id"] = "00000000-0000-0000-0000-000000000000"
     nil_res = consume(nil_account, store=ReceiptStore(), now=NOW, bind_session=False)
     check("nil UUID account omitted", "account_id" in (nil_res.dossier or {}), False)
 
@@ -314,7 +391,8 @@ def test_adversarial():
     check("string payload malformed", r.reason, MALFORMED)
     r = consume({"schema": "CONFENGE_HANDRAISER_ITEM/1.0"}, store=store, now=NOW,
                 bind_session=False)
-    check("empty wrap missing identity", r.reason in (MALFORMED, MISSING_IDENTITY), True)
+    check("empty wrap unpinned or malformed",
+          r.reason in (MALFORMED, MISSING_IDENTITY, SCHEMA_UNPINNED), True)
     r = consume(load_fx("accepted.json"), store=store, now=NOW, raw_size=300_000,
                 bind_session=False)
     check("oversized", r.reason, OVERSIZED)
@@ -358,10 +436,17 @@ def test_prompt_and_ux():
     for key in ("empresa", "por_que_chegou_agora", "canal", "intencao",
                 "fatos_verificaveis", "o_que_nao_sabemos", "oportunidade_contrato",
                 "ultimo_touch_outcome", "proximo_estado_comercial", "freshness",
-                "status", "inbound_only"):
+                "status", "inbound_only", "resumo", "nucleo", "nucleo_problema",
+                "o_que_ja_se_sabe", "o_que_e_unknown", "perguntas_sugeridas",
+                "limites_conflito", "proximo_estado", "evidencia_tecnica",
+                "detalhe"):
         check(f"conversation layer has {key}", key in conv, True)
-    check("conversation canal", conv.get("canal") in ("INBOUND_LIVE", "confenge_web"), True)
+    check("conversation canal", conv.get("canal") in ("INBOUND_LIVE", "CONFENGE_WEB", "confenge_web"), True)
     check("conversation status ACCEPTED", conv.get("status"), "ACCEPTED")
+    check("conversation source CONFENGE_WEB", conv.get("source"), SOURCE_LANE)
+    check("list title is not technical id", conv.get("resumo") != conv.get("handraiser_id"), True)
+    check("technical id lives in detalhe",
+          conv.get("detalhe", {}).get("handraiser_id") == conv.get("handraiser_id"), True)
 
     js = FRONTEND_JS.read_text(encoding="utf-8")
     html = FRONTEND_HTML.read_text(encoding="utf-8")
@@ -387,6 +472,10 @@ def test_kill_switch_and_pii():
     dirty["item"]["phone"] = "+5511999999999"
     dirty["item"]["cpf"] = "123.456.789-00"
     dirty["item"]["raw_message"] = "raw_message_secret_body"
+    dirty["conflict"] = {
+        "status": "CLEAR",
+        "restriction": "processo 0001234-55.2024.8.26.0100 empregado João da Silva",
+    }
     buf, handler, root = _capture_logs()
     consume(dirty, store=store, now=NOW, bind_session=False)
     refused = consume(dirty, store=store, now=NOW, enabled=False, bind_session=False)
@@ -465,9 +554,17 @@ def test_export_and_producer_fetch():
     export = load_fx("export_valid.json")
     check("export schema", export.get("schema"), SCHEMA_EXPORT)
     got = consume_export(export, store=store, now=NOW, bind_session=False)
-    check("valid export ok", got.ok, True)
-    check("valid export accepted 2", got.accepted, 2)
-    check("valid export sessions", len(store), 2)
+    check("unpinned export collection ok", got.ok, True)
+    check("unpinned export items fail-closed", got.accepted, 0)
+    check("unpinned export refused 2", got.refused, 2)
+    check("unpinned export sessions", len(store), 0)
+
+    pinned_store = ReceiptStore()
+    pinned = consume_export(load_fx("export_pinned.json"), store=pinned_store, now=NOW,
+                            bind_session=False)
+    check("pinned export ok", pinned.ok, True)
+    check("pinned export accepted 2", pinned.accepted, 2)
+    check("pinned export sessions", len(pinned_store), 2)
 
     collision = consume_export(load_fx("schema_collision_collection.json"),
                                store=ReceiptStore(), now=NOW, bind_session=False)
@@ -518,7 +615,8 @@ def test_export_and_producer_fetch():
         enabled=True, store=prior, now=NOW,
         url="https://producer.example/confenge/sales-context",
         token=token, retries=0,
-        transport=make_transport(status=200, payload=export, captured=captured),
+        transport=make_transport(status=200, payload=load_fx("export_pinned.json"),
+                                 captured=captured),
     )
     text = _drop_logs(buf, handler, root)
     check("timeout reason", timeout.reason, PRODUCER_TIMEOUT)
@@ -620,6 +718,11 @@ def test_http(label: str, out_path: str | None = None) -> dict:
     check("http intent in body", body.get("intencao"), "REQUEST_DEEP_DIVE")
     check("http next state in body", body.get("proximo_estado_comercial"),
           "fechar o escopo do primeiro ciclo")
+    check("http nucleo", body.get("nucleo"), "Obras públicas (B2G)")
+    check("http resumo present", bool(body.get("resumo")), True)
+    check("http resumo is not id", body.get("resumo") == body.get("handraiser_id"), False)
+    check("http session id present", bool(body.get("session_id")), True)
+    check("http schema pin", body.get("schema"), SCHEMA_CONTEXT)
     sid = body.get("session_id")
     hid = body.get("handraiser_id")
 
@@ -648,6 +751,11 @@ def test_http(label: str, out_path: str | None = None) -> dict:
     check("http list has the accepted conversation",
           any(c.get("handraiser_id") == hid for c in lbody.get("conversations") or []), True)
     check("http list has no token", "WARMBLY_TOKEN" in json.dumps(lbody), False)
+    for row in lbody.get("conversations") or []:
+        title = row.get("titulo") or row.get("resumo") or row.get("empresa")
+        check("http list title is not technical id",
+              title == row.get("handraiser_id"), False)
+        check("http list has nucleo label", bool(row.get("nucleo")), True)
 
     other = client.post("/api/handraiser/ingest", json=load_fx("accepted_other.json"))
     check("http second id 200", other.status_code, 200)
@@ -680,6 +788,11 @@ def test_http(label: str, out_path: str | None = None) -> dict:
         ("schema_drift.json", SCHEMA_MISMATCH),
         ("malformed.json", MALFORMED),
         ("invalid_freshness.json", FRESHNESS_INVALID),
+        ("unpinned_legacy.json", SCHEMA_UNPINNED),
+        ("native_warmbly_item.json", SCHEMA_UNPINNED),
+        ("missing_conflict.json", MISSING_CONFLICT_CLEARANCE),
+        ("pin_mismatch.json", SCHEMA_PIN_MISMATCH),
+        ("missing_hash.json", SCHEMA_UNPINNED),
     ):
         resp = client.post("/api/handraiser/ingest", json=load_fx(name))
         b = resp.json()
@@ -724,6 +837,7 @@ def main(argv: list[str] | None = None) -> int:
         for fn in (
             test_classify_and_collection_collision,
             test_accepted,
+            test_multivertical_nuclei,
             test_inbound_only_net_new,
             test_fail_closed,
             test_replay_and_update,
@@ -748,6 +862,7 @@ def main(argv: list[str] | None = None) -> int:
     tests = [
         test_classify_and_collection_collision,
         test_accepted,
+        test_multivertical_nuclei,
         test_inbound_only_net_new,
         test_fail_closed,
         test_replay_and_update,
