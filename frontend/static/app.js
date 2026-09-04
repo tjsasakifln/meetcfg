@@ -260,12 +260,15 @@ function renderAdvice(msg) {
 const LEAD_CONTEXT_FIELDS = [
   ["empresa", "empresa"],
   ["por_que_chegou_agora", "por que chegou agora"],
+  ["canal", "canal"],
   ["intencao", "intenção"],
   ["fatos_verificaveis", "fatos verificáveis"],
   ["o_que_nao_sabemos", "o que NÃO sabemos"],
   ["oportunidade_contrato", "oportunidade/contrato relevante"],
   ["ultimo_touch_outcome", "último touch/outcome"],
   ["proximo_estado_comercial", "próximo estado comercial"],
+  ["freshness", "freshness"],
+  ["status", "status"],
 ];
 
 function fieldText(value) {
@@ -300,7 +303,101 @@ function renderLeadContext(msg) {
     if (text === "UNKNOWN") dd.className = "unknown";
     fields.append(dt, dd);
   }
+  const inbound = conv.inbound_only !== undefined ? conv.inbound_only : msg.inbound_only;
+  if (inbound === true) {
+    const dt = document.createElement("dt");
+    dt.textContent = "inbound-only";
+    const dd = document.createElement("dd");
+    dd.textContent = "sim — não é elegibilidade outbound";
+    fields.append(dt, dd);
+  }
   box.classList.remove("hidden");
+}
+
+function setHrFetchState(text) {
+  const el = $("hrFetchState");
+  if (el) el.textContent = text || "";
+}
+
+function renderConversationList(body) {
+  const list = $("hrList");
+  const empty = $("hrPickerEmpty");
+  if (!list) return;
+  list.textContent = "";
+  const fetchState = (body && body.fetch) || {};
+  if (!body || body.warmbly_configured === false || fetchState.reason === "PRODUCER_NOT_CONFIGURED") {
+    setHrFetchState("modo manual — sem credencial Warmbly");
+  } else if (fetchState.reason && fetchState.ok === false) {
+    setHrFetchState(fetchState.reason);
+  } else if (fetchState.at) {
+    setHrFetchState("atualizado");
+  }
+  const rows = (body && body.conversations) || [];
+  if (empty) empty.classList.toggle("hidden", rows.length > 0);
+  const current = meetingId;
+  rows.forEach((row) => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const bits = [row.empresa || "UNKNOWN", row.status || "", row.freshness || ""].filter(Boolean);
+    btn.textContent = bits.join(" · ");
+    if (row.inbound_only === true) {
+      const meta = document.createElement("span");
+      meta.className = "hr-list-meta";
+      meta.textContent = " inbound-only";
+      btn.appendChild(meta);
+    }
+    if (row.session_id === current || row.handraiser_id === current.replace(/^hr:/, "")) {
+      btn.classList.add("active");
+    }
+    btn.onclick = () => selectConversation(row.handraiser_id);
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+function loadConversations() {
+  return fetch("/api/handraiser/list")
+    .then((r) => r.json())
+    .then(renderConversationList)
+    .catch(() => setHrFetchState("lista indisponível"));
+}
+
+function refreshConversas() {
+  const btn = $("refreshConversasBtn");
+  if (btn) btn.disabled = true;
+  setHrFetchState("atualizando…");
+  return fetch("/api/handraiser/refresh", { method: "POST" })
+    .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+    .then(({ body }) => {
+      const reason = (body && body.reason) || "";
+      if (reason === "PRODUCER_NOT_CONFIGURED") setHrFetchState("modo manual — sem credencial Warmbly");
+      else if (body && body.ok) setHrFetchState("atualizado");
+      else setHrFetchState(reason || "falha ao atualizar");
+      renderConversationList(body);
+    })
+    .catch(() => setHrFetchState("falha ao atualizar"))
+    .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function selectConversation(hid) {
+  fetch("/api/handraiser/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handraiser_id: hid }),
+  })
+    .then((r) => r.json())
+    .then((body) => {
+      if (!body || !body.ok || !body.session_id) {
+        setHrFetchState((body && body.reason) || "não encontrado");
+        return;
+      }
+      const u = new URL(location.href);
+      u.searchParams.set("meeting", body.session_id);
+      u.searchParams.delete("handraiser");
+      location.assign(u.toString());
+    })
+    .catch(() => setHrFetchState("falha ao selecionar"));
 }
 
 function loadLeadContext() {
@@ -333,7 +430,10 @@ $("adviseBtn").onclick = () => {
     copilotWs.send(JSON.stringify({ type: "advise_now" }));
   }
 };
+const refreshBtn = $("refreshConversasBtn");
+if (refreshBtn) refreshBtn.onclick = refreshConversas;
 // Connect on load so the test mode (tools/inject_transcript.py) can drive the
 // page without anyone clicking Iniciar.
 connectCopilot();
 loadLeadContext();
+loadConversations();

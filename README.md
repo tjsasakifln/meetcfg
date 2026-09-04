@@ -180,12 +180,17 @@ de conversa com o dossiê já carregado.
   `CONFENGE_HANDRAISER_ITEM/1.0`). Replay do mesmo `handraiser_id` devolve a
   mesma sessão `hr:<id>`. `REJECTED_WITH_REASON` / `UNKNOWN` / freshness
   inválida falham fechado, sem sessão.
-- Tela da conversa: empresa, por que chegou agora, intenção, fatos
+- Pull opt-in: `WARMBLY_BASE_URL` + `WARMBLY_TOKEN` (backend only). Sem
+  credencial o app sobe em modo manual. `POST /api/handraiser/refresh` e o
+  botão **Atualizar conversas** puxam a coleção uma vez — nunca a cada
+  orientação do copiloto. `GET /api/handraiser/list` é a lista curta das
+  conversas aceitas nesta sessão (não é CRM).
+- Tela da conversa: empresa, por que chegou agora, canal, intenção, fatos
   verificáveis, o que NÃO sabemos, oportunidade/contrato, último
-  touch/outcome, próximo estado. Abra `/?meeting=hr:<id>` ou
-  `/?handraiser=<id>`.
-- Rollback: `HANDRAISER_CONSUMER_ENABLED=false` recusa ingest novo e preserva
-  receipts já aceitos. `inbound_only` do produtor nunca vira outbound.
+  touch/outcome, próximo estado, freshness/status, inbound-only quando
+  aplicável. Abra `/?meeting=hr:<id>` ou `/?handraiser=<id>`.
+- Rollback: `HANDRAISER_CONSUMER_ENABLED=false` recusa ingest/refresh novos e
+  preserva receipts já aceitos. `inbound_only` do produtor nunca vira outbound.
 
 Fixtures em [`fixtures/handraiser/`](fixtures/handraiser/).
 

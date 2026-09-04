@@ -39,6 +39,12 @@ async def _warmup() -> None:
     # Load whisper at boot so the first utterance isn't slow.
     if settings.whisper_warmup:
         await asyncio.to_thread(get_model)
+    # Opt-in producer pull once. Failure keeps manual mode; never blocks boot.
+    if settings.handraiser_consumer_enabled and handraiser.producer_configured():
+        try:
+            await asyncio.to_thread(handraiser.refresh_conversations)
+        except Exception:  # noqa: BLE001 - producer must not take the app down
+            log.info("handraiser startup fetch failed; manual mode preserved")
 
 
 @app.get("/")
@@ -63,7 +69,12 @@ async def health() -> dict:
 
 @app.get("/api/config")
 async def api_config() -> dict:
-    return {"user_name": settings.user_name}
+    # Token, URL userinfo, and producer secrets never leave the backend.
+    return {
+        "user_name": settings.user_name,
+        "handraiser_consumer_enabled": bool(settings.handraiser_consumer_enabled),
+        "warmbly_configured": handraiser.producer_configured(),
+    }
 
 
 def _session_for_id(meeting_id: str) -> meeting.MeetingSession:
@@ -198,6 +209,10 @@ def _conversation_payload(session: meeting.MeetingSession) -> dict | None:
         "ultimo_touch_outcome": conv.get("ultimo_touch_outcome"),
         "proximo_estado_comercial": conv.get("proximo_estado_comercial"),
         "inbound_only": conv.get("inbound_only"),
+        "canal": conv.get("canal"),
+        "freshness": conv.get("freshness"),
+        "status": conv.get("status"),
+        "identity_ref": conv.get("identity_ref"),
     }
 
 
@@ -208,6 +223,37 @@ def _consume_kwargs() -> dict:
         "freshness_max_age_s": float(settings.handraiser_freshness_max_age_s),
         "bind_session": True,
     }
+
+
+@app.get("/api/handraiser/list")
+async def api_handraiser_list() -> dict:
+    """Short accepted-conversation list. Empty is valid (manual mode)."""
+    return {
+        "ok": True,
+        "reason": "",
+        "fetch": handraiser.get_fetch_state(),
+        "conversations": handraiser.list_conversations(),
+        "warmbly_configured": handraiser.producer_configured(),
+        "enabled": bool(settings.handraiser_consumer_enabled),
+    }
+
+
+@app.post("/api/handraiser/refresh")
+async def api_handraiser_refresh():
+    """Explicit pull from Warmbly. Not called per copilot orientation."""
+    result = await asyncio.to_thread(
+        handraiser.refresh_conversations,
+        enabled=bool(settings.handraiser_consumer_enabled),
+        bind_session=False,
+    )
+    body = result.as_http()
+    if not result.ok:
+        code = 409 if result.reason == handraiser.CONSUMER_DISABLED else 400
+        if result.reason == handraiser.PRODUCER_NOT_CONFIGURED:
+            code = 200  # app stays up in manual mode
+            body["ok"] = True
+        return JSONResponse(body, status_code=code)
+    return body
 
 
 @app.post("/api/handraiser/ingest")
@@ -256,6 +302,10 @@ async def api_handraiser_get(handraiser_id: str):
         "intencao": conv.get("intencao"),
         "proximo_estado_comercial": conv.get("proximo_estado_comercial"),
         "por_que_chegou_agora": conv.get("por_que_chegou_agora"),
+        "canal": conv.get("canal"),
+        "freshness": conv.get("freshness"),
+        "status": conv.get("status"),
+        "inbound_only": rec.inbound_only,
     }
 
 
@@ -284,6 +334,10 @@ async def api_handraiser_select(body: SelectHandraiser) -> dict:
         "empresa": conv.get("empresa"),
         "intencao": conv.get("intencao"),
         "proximo_estado_comercial": conv.get("proximo_estado_comercial"),
+        "canal": conv.get("canal"),
+        "freshness": conv.get("freshness"),
+        "status": conv.get("status"),
+        "inbound_only": rec.inbound_only,
     }
 
 

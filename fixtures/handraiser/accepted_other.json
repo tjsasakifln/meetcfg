@@ -1,0 +1,53 @@
+{
+  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "handraiser_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "origin": "CONFENGE_WEB",
+  "lane": "confenge_web",
+  "inbound_only": true,
+  "admission": {
+    "schema_version": "net-new-inbound-handraiser-admission.v1",
+    "policy_id": "NET_NEW_INBOUND_HANDRAISER",
+    "decision": "ACCEPTED",
+    "reason_codes": ["ADMISSION_GATES_SATISFIED"],
+    "receipt_id": "rcpt_vertice_other_001",
+    "logical_admission_id": "nihr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "origin": "CONFENGE_WEB",
+    "acquisition_lane": "NET_NEW_INBOUND",
+    "intent_kind": "REQUEST_DEEP_DIVE",
+    "subject_ref": "subj:web:vertice-obras",
+    "inbound_only": true,
+    "outbound_eligible": false,
+    "identity_authorization": "INBOUND_ONLY",
+    "evaluated_at": "2026-09-03T12:05:00Z"
+  },
+  "item": {
+    "action_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "account_id": "22222222-2222-2222-2222-222222222222",
+    "acquisition_channel": "confenge_web",
+    "company_ref": "vertice-obras",
+    "company_name": "Vertice Obras e Infraestrutura Ltda",
+    "intent_reason": "REQUEST_DEEP_DIVE",
+    "reply_reason": "segunda mão levantada no mesmo webinar",
+    "conversation_started": true,
+    "facts": {
+      "why_now": "segunda inscrição no webinar, outro formulário",
+      "factual_hook": "Executa contrato municipal de drenagem em vigência, informação do portal de transparência",
+      "evidence_ids": ["portal-transparencia", "webinar-2026-07-15"],
+      "stated_limits": [
+        "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública"
+      ]
+    },
+    "touchpoints": [
+      {
+        "ordinal": 1,
+        "channel": "webinar",
+        "state": "attended",
+        "subject": "Por que boas construtoras são desclassificadas — assistiu",
+        "sent_at": "2026-07-15T18:00:00Z"
+      }
+    ],
+    "next_action_type": "confirmar o interlocutor da segunda inscrição",
+    "state": "call_needed",
+    "created_at": "2026-09-03T12:04:00Z"
+  }
+}
