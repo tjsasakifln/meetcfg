@@ -1,28 +1,77 @@
 {
-  "schema": "CONFENGE_HANDRAISER_ITEM/1.0",
+  "schema": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
+  "schema_hash": "300a5970bbb5fc9c50682b67911e4fd067839e2c0c7de5fbc05ed05a076bffd5",
+  "contracts": {
+    "admission": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+    "catalog": "CONFENGE_OFFER_CATALOG/2.0.0-draft.20260904",
+    "context": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
+    "intake": "CONFENGE_WEB_INTAKE/2.0.0-draft.20260904",
+    "state": "CONFENGE_HANDRAISER_STATE/1.0.0-draft.20260904",
+    "taxonomy": "CONFENGE_CORPORATE_TAXONOMY/1.0.0-draft.20260904"
+  },
+  "source": "CONFENGE_WEB",
+  "lane": "CONFENGE_WEB",
+  "inbound_only": true,
+  "outbound_eligible": false,
+  "auto_send": false,
+  "offer_candidate": "private_project_technical_readiness_assessment",
+  "private_asset": "private_project_technical_readiness_v1",
+  "qualification_state": "ACCEPTED",
+  "conflict": {
+    "status": "CLEAR",
+    "restriction": "NONE"
+  },
   "handraiser_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   "origin": "CONFENGE_WEB",
-  "lane": "confenge_web",
-  "inbound_only": true,
+  "nucleus_id": "public_works_b2g",
+  "decision": "ACCEPTED",
+  "receipt": "rcpt_vertice_other_001",
+  "identity": {
+    "inbound_ref": "subj:web:vertice-obras",
+    "decision_role": "UNKNOWN"
+  },
+  "situation": {
+    "why_now": "segunda inscrição no webinar, outro formulário",
+    "problema": "quer fechar o escopo do primeiro ciclo em obra pública",
+    "urgency": "this_week",
+    "city_service_area_class": "municipio_sp",
+    "desired_decision": "fechar o escopo do primeiro ciclo",
+    "document_availability_class": "public_portal_only"
+  },
+  "permitted": {
+    "facts": [
+      "levantou a mão no webinar e pediu a chamada",
+      "Executa contrato municipal de drenagem em vigência, informação do portal de transparência"
+    ],
+    "provenance": "warmbly_accepted_item",
+    "owner_links": [
+      "https://owner.example.invalid/handraiser/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    ]
+  },
+  "freshness": {
+    "as_of": "2026-09-03T11:00:00Z"
+  },
   "admission": {
-    "schema_version": "net-new-inbound-handraiser-admission.v1",
-    "policy_id": "NET_NEW_INBOUND_HANDRAISER",
+    "schema_version": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+    "policy_id": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
     "decision": "ACCEPTED",
-    "reason_codes": ["ADMISSION_GATES_SATISFIED"],
+    "reason_codes": [
+      "ADMISSION_GATES_SATISFIED"
+    ],
     "receipt_id": "rcpt_vertice_other_001",
-    "logical_admission_id": "nihr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "logical_admission_id": "nihr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "origin": "CONFENGE_WEB",
     "acquisition_lane": "NET_NEW_INBOUND",
     "intent_kind": "REQUEST_DEEP_DIVE",
     "subject_ref": "subj:web:vertice-obras",
     "inbound_only": true,
     "outbound_eligible": false,
+    "auto_send": false,
     "identity_authorization": "INBOUND_ONLY",
     "evaluated_at": "2026-09-03T12:05:00Z"
   },
   "item": {
     "action_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    "account_id": "22222222-2222-2222-2222-222222222222",
     "acquisition_channel": "confenge_web",
     "company_ref": "vertice-obras",
     "company_name": "Vertice Obras e Infraestrutura Ltda",
@@ -32,7 +81,10 @@
     "facts": {
       "why_now": "segunda inscrição no webinar, outro formulário",
       "factual_hook": "Executa contrato municipal de drenagem em vigência, informação do portal de transparência",
-      "evidence_ids": ["portal-transparencia", "webinar-2026-07-15"],
+      "evidence_ids": [
+        "portal-transparencia",
+        "webinar-2026-07-15"
+      ],
       "stated_limits": [
         "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública"
       ]
@@ -48,6 +100,7 @@
     ],
     "next_action_type": "confirmar o interlocutor da segunda inscrição",
     "state": "call_needed",
-    "created_at": "2026-09-03T12:04:00Z"
+    "created_at": "2026-09-03T12:04:00Z",
+    "account_id": "22222222-2222-2222-2222-222222222222"
   }
 }
