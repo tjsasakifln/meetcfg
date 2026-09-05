@@ -1,6 +1,8 @@
 {
   "schema": "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904",
   "schema_hash": "300a5970bbb5fc9c50682b67911e4fd067839e2c0c7de5fbc05ed05a076bffd5",
+  "policy_version": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+  "policy_hash": "984f442690f7c74f309173b31008518631170d63733b5cc04c32abaf88c67e28",
   "contracts": {
     "admission": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
     "catalog": "CONFENGE_OFFER_CATALOG/2.0.0-draft.20260904",

@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import ssl
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -40,11 +41,18 @@ log = logging.getLogger("meetcfg.handraiser")
 SCHEMA_ITEM = "CONFENGE_HANDRAISER_ITEM/1.0"
 SCHEMA_ADMISSION = "net-new-inbound-handraiser-admission.v1"
 
+# Published Governance authority loaded at Governance 22ad810a8c1d46d9a787efcfac825d6ba0336bff.
+# Warmbly persists this exact authority on NetNewInboundReadback; Meetcfg is a
+# consumer of that decision and never substitutes its local context digest.
+GOVERNANCE_AUTHORITY_SHA = "22ad810a8c1d46d9a787efcfac825d6ba0336bff"
+GOVERNANCE_AUTHORITY = "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904"
+GOVERNANCE_POLICY_HASH = "984f442690f7c74f309173b31008518631170d63733b5cc04c32abaf88c67e28"
+
 # Campaign 14 pin. Runtime requires this exact context schema + hash.
 # Fixtures are test-only; they are never a fallback when the pin is missing.
 SCHEMA_CONTEXT = "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904"
 PINNED_CONTRACTS = {
-    "admission": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+    "admission": GOVERNANCE_AUTHORITY,
     "catalog": "CONFENGE_OFFER_CATALOG/2.0.0-draft.20260904",
     "context": SCHEMA_CONTEXT,
     "intake": "CONFENGE_WEB_INTAKE/2.0.0-draft.20260904",
@@ -86,16 +94,9 @@ CRM_SIDE_EFFECT_KEYS = (
     "offer_truth", "opportunity", "account",
 )
 
-# Warmbly origin/main producer fingerprint. Re-validate before merge; #47 is
-# still open and may land a different item/export shape.
-# SHA cc11a9ab22d54e08ceb24efc9b555e0ac9c25b23
-# file internal/app/confenge/sales_context.go
-# GET /confenge/sales-context → {data: SalesContextExport}
-# Export.schema is SalesContextSchemaV1 = CONFENGE_SALES_CONTEXT/1.0 (COLLISION:
-# that tag is the individual dossier here; collection is SCHEMA_EXPORT).
-# Native item has no CNPJ and no inbound_only.
-WARMBLY_PRODUCER_SHA = "cc11a9ab22d54e08ceb24efc9b555e0ac9c25b23"
-WARMBLY_PRODUCER_FILE = "internal/app/confenge/sales_context.go"
+# Warmbly main producer fingerprint for the persisted readback contract.
+WARMBLY_PRODUCER_SHA = "33bd329437bc04a2e95ef0f4d562d26b85f34e35"
+WARMBLY_PRODUCER_FILE = "internal/app/confenge/net_new_inbound_ingest.go"
 WARMBLY_ITEM_KEYS = (
     "action_id", "account_id", "acquisition_channel", "company_ref",
     "company_name", "person_name", "candidate_id", "opportunity_id",
@@ -141,6 +142,7 @@ NUCLEUS_UNKNOWN = "NUCLEUS_UNKNOWN"
 SOURCE_LANE_MISMATCH = "SOURCE_LANE_MISMATCH"
 OFFER_CANDIDATE_MISMATCH = "OFFER_CANDIDATE_MISMATCH"
 OUTBOUND_NOT_ELIGIBLE = "OUTBOUND_NOT_ELIGIBLE"
+READBACK_INCOMPLETE = "READBACK_INCOMPLETE"
 
 MAX_PAYLOAD_BYTES = 256_000
 SESSION_PREFIX = "hr:"
@@ -187,7 +189,7 @@ def _unwrap(payload):
 
 
 def classify_payload(payload) -> str:
-    """One of: collection, dossier, native_item, admission, wrap, malformed."""
+    """Classify one supported runtime document without adapting its shape."""
     if not isinstance(payload, dict):
         return "malformed"
     doc = _unwrap(payload)
@@ -202,9 +204,9 @@ def classify_payload(payload) -> str:
         return "wrap"
     if schema == SCHEMA_CONTEXT:
         return "wrap"
+    if schema == GOVERNANCE_AUTHORITY:
+        return "native_readback"
     if schema == SCHEMA_ADMISSION or schema == "net-new-inbound-handraiser-admission.v1":
-        return "admission"
-    if schema == PINNED_CONTRACTS["admission"]:
         return "admission"
     if schema == SCHEMA_ID:
         return "dossier"
@@ -308,6 +310,56 @@ def pin_reason(doc: dict) -> str:
             return SCHEMA_UNPINNED
         if got != expected:
             return SCHEMA_PIN_MISMATCH
+    authority = doc.get("authority") if isinstance(doc.get("authority"), dict) else {}
+    policy_version = _str(doc.get("policy_version") or authority.get("canonical_name"))
+    policy_hash = _str(doc.get("policy_hash") or authority.get("policy_hash"))
+    if not policy_version or not policy_hash:
+        return SCHEMA_UNPINNED
+    if policy_version != GOVERNANCE_AUTHORITY or policy_hash != GOVERNANCE_POLICY_HASH:
+        return SCHEMA_PIN_MISMATCH
+    return ""
+
+
+def native_readback_reason(doc: dict) -> str:
+    """Validate Warmbly's persisted NetNewInboundReadback, fail closed.
+
+    IDs and acknowledgement are required fields of the complete readback
+    shape. Persist provenance comes from the authenticated Warmbly runtime GET,
+    outside this shape validator. The authority outcome is checked separately.
+    """
+    if _str(doc.get("schema")) != GOVERNANCE_AUTHORITY:
+        return SCHEMA_UNPINNED
+    policy_version = _str(doc.get("policy_version"))
+    policy_hash = _str(doc.get("hash"))
+    if not policy_version or not policy_hash:
+        return SCHEMA_UNPINNED
+    if policy_version != GOVERNANCE_AUTHORITY or policy_hash != GOVERNANCE_POLICY_HASH:
+        return SCHEMA_PIN_MISMATCH
+    if _str(doc.get("intake_schema")) != PINNED_CONTRACTS["intake"]:
+        return SCHEMA_PIN_MISMATCH
+    if _str(doc.get("state_schema")) != PINNED_CONTRACTS["state"]:
+        return SCHEMA_PIN_MISMATCH
+    if doc.get("inbound_only") is not True:
+        return OUTBOUND_NOT_ELIGIBLE
+    for key in ("outbound_eligible", "auto_send", "dispatch_attempted"):
+        if doc.get(key) is not False:
+            return OUTBOUND_NOT_ELIGIBLE
+    if doc.get("meetcfg_handoff_allowed") is not True:
+        return READBACK_INCOMPLETE
+    if not all(_str(doc.get(key)) for key in (
+        "logical_id", "receipt", "acknowledged_by", "acknowledged_at",
+        "account_id", "action_id",
+    )):
+        return READBACK_INCOMPLETE
+    if _parse_instant(doc.get("acknowledged_at")) is None:
+        return READBACK_INCOMPLETE
+    for key in ("account_id", "action_id"):
+        try:
+            persisted_id = uuid.UUID(_str(doc.get(key)))
+        except (ValueError, AttributeError):
+            return READBACK_INCOMPLETE
+        if persisted_id.int == 0:
+            return READBACK_INCOMPLETE
     return ""
 
 
@@ -779,6 +831,14 @@ def map_to_dossier(
     dossier["permitted_facts"] = permitted_facts or public_facts
     dossier["schema_context"] = SCHEMA_CONTEXT
     dossier["schema_hash"] = _str(extras.get("schema_hash") or src.get("schema_hash")) or PIN_HASH
+    dossier["policy_version"] = (
+        _str(extras.get("policy_version") or src.get("policy_version"))
+        or GOVERNANCE_AUTHORITY
+    )
+    dossier["policy_hash"] = (
+        _str(extras.get("policy_hash") or src.get("policy_hash"))
+        or GOVERNANCE_POLICY_HASH
+    )
     dossier["source"] = SOURCE_LANE
     dossier["outbound_eligible"] = False
     dossier["auto_send"] = False
@@ -797,6 +857,110 @@ def map_to_dossier(
         if item not in seen_u:
             seen_u.append(item)
     dossier["unknown"] = seen_u
+    return dossier
+
+
+def map_readback_to_dossier(readback: dict) -> dict:
+    """Project an authoritative Warmbly readback into the in-memory context.
+
+    Only fields present on NetNewInboundReadback are copied. Commercial stage,
+    company, participant roles, work kind, next state, and technical evidence
+    remain UNKNOWN because the persisted receipt does not establish them.
+    """
+    logical_id = _str(readback.get("logical_id"))
+    acknowledged_at = _str(readback.get("acknowledged_at"))
+    why_now = _str(readback.get("why_now")) or UNKNOWN
+    canonical_entity_id = _str(readback.get("canonical_entity_id"))
+    conflict_ref = _str(readback.get("conflict_ref"))
+    dossier: dict[str, Any] = {
+        "schema": SCHEMA_ID,
+        "handraiser_id": logical_id,
+        "origin": SOURCE_LANE,
+        "lane": SOURCE_LANE,
+        "source": SOURCE_LANE,
+        "acquisition_channel": "INBOUND_LIVE",
+        "company": {"name": UNKNOWN, "cnpj": None},
+        "intent": {"kind": UNKNOWN, "reply_reason": None},
+        "offer": {"current": None, "next_state": UNKNOWN},
+        "source_as_of": acknowledged_at,
+        "freshness": {"as_of": acknowledged_at},
+        "provenance": "warmbly_net_new_inbound_readback",
+        "public_facts": [],
+        "permitted_facts": [],
+        "opportunities": [],
+        "evidence": [],
+        "limits": [],
+        "touchpoints": [],
+        "situacao": "ACCEPTED",
+        "receipt": _str(readback.get("receipt")),
+        "outcome": "ACCEPTED",
+        "why_now": why_now,
+        "next_state": UNKNOWN,
+        "account_id": _str(readback.get("account_id")),
+        "action_id": _str(readback.get("action_id")),
+        "inbound_only": True,
+        "nucleus_id": _str(readback.get("nucleus")),
+        "offer_candidate": _str(readback.get("offer_candidate")) or UNKNOWN,
+        "private_asset": _str(readback.get("source_asset")) or UNKNOWN,
+        "decision_role": UNKNOWN,
+        "urgency": _str(readback.get("urgency")) or UNKNOWN,
+        "city_service_area_class": _str(readback.get("city_class")) or UNKNOWN,
+        "desired_decision": UNKNOWN,
+        "document_availability_class": UNKNOWN,
+        "problema": UNKNOWN,
+        # ACCEPTED proves the Governance gates passed. It does not tell Meetcfg
+        # whether the protected conflict result was CLEAR or RESTRICTED.
+        "conflict_status": UNKNOWN,
+        "conflict_restriction": UNKNOWN,
+        "conflict_ref": conflict_ref or None,
+        "qualification_state": "ACCEPTED",
+        "owner_links": [],
+        "schema_context": SCHEMA_CONTEXT,
+        "schema_hash": PIN_HASH,
+        "policy_version": GOVERNANCE_AUTHORITY,
+        "policy_hash": GOVERNANCE_POLICY_HASH,
+        "authority_source_sha": GOVERNANCE_AUTHORITY_SHA,
+        "outbound_eligible": False,
+        "auto_send": False,
+        "dispatch_attempted": False,
+        "meetcfg_handoff_allowed": True,
+        "acknowledged_by": _str(readback.get("acknowledged_by")),
+        "acknowledged_at": acknowledged_at,
+    }
+    if canonical_entity_id:
+        dossier["identity_ref"] = canonical_entity_id
+        dossier["company"]["identity_ref"] = canonical_entity_id
+    dossier["unknown"] = _missing_commercial(dossier)
+
+    handoff = {
+        "decision_role": UNKNOWN,
+        "document_availability_class": UNKNOWN,
+        "urgency": dossier["urgency"],
+        "city_service_area_class": dossier["city_service_area_class"],
+    }
+    from .conversion import SCHEMA_MEETING_PLAN, parse_meeting_plan
+    raw_plan = {
+        "schema": SCHEMA_MEETING_PLAN,
+        "objective": UNKNOWN,
+        "participant_roles": [{"name": UNKNOWN, "role": UNKNOWN}],
+        "unanswered_questions": suggested_questions(dossier["unknown"], handoff),
+        "answered_questions": [],
+        "evidence_to_confirm": [],
+        "scope_limits": [
+            "inbound_only=true",
+            "outbound_eligible=false",
+            "auto_send=false",
+            "dispatch_attempted=false",
+        ],
+        "conflict_limits": ([f"protected conflict_ref={conflict_ref}"] if conflict_ref else []),
+        "advancement_criterion": UNKNOWN,
+        "work_kind": UNKNOWN,
+    }
+    plan, reason = parse_meeting_plan(raw_plan)
+    if plan is not None:
+        dossier["meeting_plan"] = plan
+    elif reason:
+        dossier["meeting_plan_reason"] = reason
     return dossier
 
 
@@ -876,7 +1040,10 @@ def render_conversation_layer(dossier: dict) -> dict:
     evidencia = [s for s in (dossier.get("evidence") or []) if isinstance(s, str) and s.strip()]
     restriction = _str(dossier.get("conflict_restriction")) or UNKNOWN
     conflict_status = _str(dossier.get("conflict_status")) or UNKNOWN
-    if conflict_status == "CLEAR" and restriction in ("", "NONE", UNKNOWN):
+    conflict_ref = _str(dossier.get("conflict_ref"))
+    if conflict_ref and conflict_status == UNKNOWN:
+        limites_conflito = f"referência protegida do produtor: {conflict_ref}; classe UNKNOWN"
+    elif conflict_status == "CLEAR" and restriction in ("", "NONE", UNKNOWN):
         limites_conflito = "sem restrição declarada pelo produtor"
     else:
         limites_conflito = f"{conflict_status} · {restriction}"
@@ -939,13 +1106,19 @@ def render_conversation_layer(dossier: dict) -> dict:
         "provenance": _str(dossier.get("provenance")) or UNKNOWN,
         "outbound_eligible": False,
         "auto_send": False,
+        "dispatch_attempted": bool(dossier.get("dispatch_attempted")),
+        "meetcfg_handoff_allowed": dossier.get("meetcfg_handoff_allowed"),
         "schema": SCHEMA_CONTEXT,
         "schema_hash": _str(dossier.get("schema_hash")) or PIN_HASH,
+        "policy_version": _str(dossier.get("policy_version")) or UNKNOWN,
+        "policy_hash": _str(dossier.get("policy_hash")) or UNKNOWN,
         "detalhe": {
             "handraiser_id": _str(dossier.get("handraiser_id")),
             "nucleus_id": nucleus_id or UNKNOWN,
             "schema": SCHEMA_CONTEXT,
             "schema_hash": _str(dossier.get("schema_hash")) or PIN_HASH,
+            "policy_version": _str(dossier.get("policy_version")) or UNKNOWN,
+            "policy_hash": _str(dossier.get("policy_hash")) or UNKNOWN,
             "receipt": _str(dossier.get("receipt")),
             "source": SOURCE_LANE,
             "lane": SOURCE_LANE,
@@ -997,12 +1170,13 @@ def _is_older_receipt(receipt: str, dossier: dict, existing: AcceptedRecord) -> 
     return incoming < held
 
 
-def _identity_key(dossier: dict) -> tuple[str, str, str]:
+def _identity_key(dossier: dict) -> tuple[str, str, str, str]:
     company = dossier.get("company") if isinstance(dossier.get("company"), dict) else {}
     ref = _str(dossier.get("identity_ref")) or _str(company.get("identity_ref"))
     account = _str(dossier.get("account_id"))
+    action = _str(dossier.get("action_id"))
     cnpj = _str(company.get("cnpj")) if looks_like_cnpj(company.get("cnpj")) else ""
-    return ref, account, cnpj
+    return ref, account, action, cnpj
 
 
 def _identity_conflict(existing: dict, incoming: dict) -> bool:
@@ -1013,6 +1187,11 @@ def _identity_conflict(existing: dict, incoming: dict) -> bool:
         if left and right and left != right:
             return True
     return False
+
+
+def _native_identity_conflict(existing: dict, incoming: dict) -> bool:
+    """Persisted readback identity is stable, including optional ref presence."""
+    return _identity_key(existing) != _identity_key(incoming)
 
 
 def _size_of(payload, raw_size: int | None) -> int:
@@ -1066,6 +1245,9 @@ class ConsumeResult:
             body["proximo_estado"] = self.conversation.get("proximo_estado")
             body["source"] = self.conversation.get("source")
             body["schema"] = self.conversation.get("schema")
+            body["outbound_eligible"] = self.conversation.get("outbound_eligible")
+            body["auto_send"] = self.conversation.get("auto_send")
+            body["dispatch_attempted"] = self.conversation.get("dispatch_attempted")
         return body
 
 
@@ -1183,7 +1365,8 @@ def consume(
             "offer_candidate", "private_asset", "conflict", "identity",
             "situation", "permitted", "auto_send", "outbound_eligible",
             "qualification_state", "schema_hash", "contracts", "owner_links",
-            "decision_role", "decision", "meeting_plan", "commercial_stage",
+            "policy_version", "policy_hash", "decision_role", "decision",
+            "meeting_plan", "commercial_stage",
         ):
             if k in doc:
                 extras[k] = doc[k]
@@ -1196,7 +1379,14 @@ def consume(
     if item is not None and is_collection(item):
         return _fail(SCHEMA_MISMATCH_COLLECTION)
 
-    closed = _closed_state(doc) or _closed_state(admission or {}) or _closed_state(item or {})
+    if kind == "native_readback":
+        # NetNewInboundReadback.outcome is the authoritative persisted result.
+        # An extra alias must never mask UNKNOWN/REJECTED or contradict it.
+        closed = _str(doc.get("outcome")) or None
+        if "decision" in doc and _str(doc.get("decision")) != closed:
+            return _fail(UNKNOWN_OUTCOME)
+    else:
+        closed = _closed_state(doc) or _closed_state(admission or {}) or _closed_state(item or {})
     if closed == DECISION_REJECTED:
         return _fail(REJECTED_WITH_REASON)
     if closed == DECISION_UNKNOWN:
@@ -1204,32 +1394,51 @@ def consume(
     if closed is not None and closed != DECISION_ACCEPTED:
         return _fail(UNKNOWN_OUTCOME)
 
-    pin = pin_reason(doc)
-    if pin:
-        log.info("handraiser consume failed reason=%s schema=%s", pin, _str(doc.get("schema")))
-        return _fail(pin)
-    lane_fail = source_lane_reason(doc, extras, admission or {}, item or {})
-    if lane_fail:
-        return _fail(lane_fail)
-    nuc_fail = nucleus_reason(doc, extras, admission or {}, item or {})
-    if nuc_fail:
-        return _fail(nuc_fail)
-    conf_fail = conflict_reason(doc, extras, admission or {}, item or {})
-    if conf_fail:
-        return _fail(conf_fail)
-    elig_fail = eligibility_reason(doc, extras, admission or {}, item or {})
-    if elig_fail:
-        return _fail(elig_fail)
-    offer_fail = offer_reason(doc, extras, admission or {}, item or {})
-    if offer_fail:
-        return _fail(offer_fail)
+    if kind == "native_readback":
+        readback_fail = native_readback_reason(doc)
+        if readback_fail:
+            log.info("handraiser readback refused reason=%s", readback_fail)
+            return _fail(readback_fail)
+        nuc_fail = nucleus_reason(doc)
+        if nuc_fail:
+            return _fail(nuc_fail)
+        offer_fail = offer_reason(doc)
+        if offer_fail:
+            return _fail(offer_fail)
+    else:
+        pin = pin_reason(doc)
+        if pin:
+            log.info("handraiser consume failed reason=%s schema=%s", pin, _str(doc.get("schema")))
+            return _fail(pin)
+        lane_fail = source_lane_reason(doc, extras, admission or {}, item or {})
+        if lane_fail:
+            return _fail(lane_fail)
+        nuc_fail = nucleus_reason(doc, extras, admission or {}, item or {})
+        if nuc_fail:
+            return _fail(nuc_fail)
+        conf_fail = conflict_reason(doc, extras, admission or {}, item or {})
+        if conf_fail:
+            return _fail(conf_fail)
+        elig_fail = eligibility_reason(doc, extras, admission or {}, item or {})
+        if elig_fail:
+            return _fail(elig_fail)
+        offer_fail = offer_reason(doc, extras, admission or {}, item or {})
+        if offer_fail:
+            return _fail(offer_fail)
     if closed is None:
         # Pinned runtime still requires an explicit ACCEPTED. Native unpinned
         # already failed SCHEMA_UNPINNED; a pinned envelope without decision
         # is not an implicit accept.
         return _fail(UNKNOWN_OUTCOME)
 
-    if kind == "dossier":
+    if kind == "native_readback":
+        dossier = map_readback_to_dossier(doc)
+        hid = _str(dossier.get("handraiser_id"))
+        reason = _validate(dossier)
+        if reason:
+            log.info("handraiser readback dossier invalid reason_code=%s detail=%s", DOSSIER_INVALID, reason)
+            return _fail(DOSSIER_INVALID, handraiser_id=hid)
+    elif kind == "dossier":
         # Dossier already in copilot semantics. Still refuse a collection tag,
         # sanitize CNPJ-as-ref, and require an identity.
         dossier = json.loads(json.dumps(item, default=str))
@@ -1287,16 +1496,43 @@ def consume(
     receipt = _receipt_of(dossier, doc)
     dossier["receipt"] = receipt
     from .conversion import attach_meeting_plan
-    plan_src = extras if isinstance(extras, dict) else {}
-    if isinstance(doc, dict) and doc.get("meeting_plan") is not None:
-        plan_src = {**plan_src, "meeting_plan": doc["meeting_plan"]}
-    if isinstance(item, dict) and item.get("meeting_plan") is not None:
-        plan_src = {**plan_src, "meeting_plan": item["meeting_plan"]}
-    attach_meeting_plan(dossier, plan_src)
+    if kind == "native_readback":
+        # The native readback has no meeting_plan field. Preserve the limited
+        # plan derived above; never trust an extra caller-supplied plan.
+        attach_meeting_plan(dossier)
+    else:
+        plan_src = extras if isinstance(extras, dict) else {}
+        if isinstance(doc, dict) and doc.get("meeting_plan") is not None:
+            plan_src = {**plan_src, "meeting_plan": doc["meeting_plan"]}
+        if isinstance(item, dict) and item.get("meeting_plan") is not None:
+            plan_src = {**plan_src, "meeting_plan": item["meeting_plan"]}
+        attach_meeting_plan(dossier, plan_src)
     conversation = render_conversation_layer(dossier)
     inbound_only = dossier.get("inbound_only") if "inbound_only" in dossier else None
 
     existing = store.get(hid)
+    if kind == "native_readback":
+        for held in store.records():
+            if held.handraiser_id != hid and held.receipt == receipt:
+                log.info("handraiser consume failed reason=%s handraiser_id=%s", IDENTITY_CONFLICT, hid)
+                return _fail(
+                    IDENTITY_CONFLICT, handraiser_id=hid, session_id=held.session_id,
+                )
+        if existing is not None and existing.receipt != receipt:
+            log.info("handraiser consume failed reason=%s handraiser_id=%s", IDENTITY_CONFLICT, hid)
+            return _fail(
+                IDENTITY_CONFLICT, handraiser_id=hid, session_id=existing.session_id,
+            )
+
+    identity_changed = existing is not None and (
+        _native_identity_conflict(existing.dossier, dossier)
+        if kind == "native_readback"
+        else _identity_conflict(existing.dossier, dossier)
+    )
+    if identity_changed:
+        log.info("handraiser consume failed reason=%s handraiser_id=%s", IDENTITY_CONFLICT, hid)
+        return _fail(IDENTITY_CONFLICT, handraiser_id=hid, session_id=existing.session_id)
+
     if existing is not None and existing.receipt == receipt:
         if bind_session:
             _bind(existing)
@@ -1308,10 +1544,6 @@ def consume(
             replayed=True, dossier=existing.dossier, conversation=existing.conversation,
             inbound_only=existing.inbound_only,
         )
-
-    if existing is not None and _identity_conflict(existing.dossier, dossier):
-        log.info("handraiser consume failed reason=%s handraiser_id=%s", IDENTITY_CONFLICT, hid)
-        return _fail(IDENTITY_CONFLICT, handraiser_id=hid, session_id=existing.session_id)
 
     if existing is not None and _is_older_receipt(receipt, dossier, existing):
         if bind_session:

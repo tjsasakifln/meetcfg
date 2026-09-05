@@ -34,12 +34,15 @@ from app.copilot.engine import (  # noqa: E402
 )
 from app.copilot.handraiser import (  # noqa: E402
     CONSUMER_DISABLED, FRESHNESS_INVALID, FRESHNESS_STALE, IDENTITY_CONFLICT,
-    MALFORMED, MISSING_CONFLICT_CLEARANCE, MISSING_IDENTITY, NUCLEI,
-    NUCLEUS_LABELS, NUCLEUS_UNKNOWN, OFFER_CANDIDATE, OVERSIZED, PIN_HASH,
+    GOVERNANCE_AUTHORITY, GOVERNANCE_POLICY_HASH, MALFORMED,
+    MISSING_CONFLICT_CLEARANCE, MISSING_IDENTITY, NUCLEI,
+    NUCLEUS_LABELS, NUCLEUS_UNKNOWN, OFFER_CANDIDATE, OUTBOUND_NOT_ELIGIBLE,
+    OVERSIZED, PIN_HASH,
     PINNED_CONTRACTS, PRODUCER_ERROR, PRODUCER_NOT_CONFIGURED,
     PRODUCER_TIMEOUT, PRODUCER_UNAUTHORIZED, REJECTED_WITH_REASON,
     SCHEMA_CONTEXT, SCHEMA_EXPORT, SCHEMA_MISMATCH, SCHEMA_MISMATCH_COLLECTION,
-    SCHEMA_PIN_MISMATCH, SCHEMA_UNPINNED, SOURCE_LANE, UNKNOWN_OUTCOME,
+    READBACK_INCOMPLETE, SCHEMA_PIN_MISMATCH, SCHEMA_UNPINNED, SOURCE_LANE,
+    UNKNOWN_OUTCOME,
     WARMBLY_ITEM_KEYS, crm_side_effect_keys, ProducerTransportError,
     ReceiptStore, assert_no_invented_fields, classify_payload, consume,
     consume_export, get_fetch_state, get_store, producer_configured,
@@ -140,6 +143,10 @@ def print_markers() -> None:
     print("REJECTED_UNKNOWN_CREATE_SESSION=ZERO")
     print("REPLAY_100X_ONE_LOGICAL_CONTEXT=PASS")
     print("REPLAY_100_ONE_LOGICAL_CONTEXT=PASS")
+    print("NATIVE_WARMBLY_READBACK=PASS")
+    print(f"GOVERNANCE_AUTHORITY={GOVERNANCE_AUTHORITY}")
+    print(f"GOVERNANCE_POLICY_HASH={GOVERNANCE_POLICY_HASH}")
+    print("DISPATCH_ATTEMPTED=FALSE")
     print("OUT_OF_ORDER_RECEIPT_REGRESSION=ZERO")
     print("COLLECTION_SCHEMA_VALIDATION=PASS")
     print("SCHEMA_MISMATCH_COLLECTION_FAIL_CLOSED=PASS")
@@ -290,6 +297,141 @@ def test_inbound_only_net_new():
     check("no chance key", "chance" in result.dossier, False)
     check("outbound_eligible not granted",
           result.dossier.get("outbound_eligible") in (None, False), True)
+
+
+def test_native_warmbly_readback():
+    print("native persisted Warmbly readback → conservative context + limited plan")
+    payload = load_fx("native_warmbly_readback.json")
+    check("native readback classified directly", classify_payload(payload), "native_readback")
+    store = ReceiptStore()
+    first = consume(payload, store=store, now=NOW, bind_session=True)
+    check("native readback accepted", first.ok, True)
+    check("logical_id is session identity", first.handraiser_id, payload["logical_id"])
+    check("persisted receipt preserved", first.receipt, payload["receipt"])
+    check("one accepted context", len(store), 1)
+    check("inbound_only true", first.inbound_only, True)
+    for field in ("outbound_eligible", "auto_send", "dispatch_attempted"):
+        check(f"{field} remains false", first.dossier.get(field), False)
+    check("account acknowledgement preserved", first.dossier.get("account_id"), payload["account_id"])
+    check("action acknowledgement preserved", first.dossier.get("action_id"), payload["action_id"])
+    check("authority version preserved", first.dossier.get("policy_version"), GOVERNANCE_AUTHORITY)
+    check("authority hash preserved", first.dossier.get("policy_hash"), GOVERNANCE_POLICY_HASH)
+    check("company remains UNKNOWN", first.conversation.get("empresa"), "UNKNOWN")
+    check("commercial next state remains UNKNOWN",
+          first.conversation.get("proximo_estado_comercial"), "UNKNOWN")
+    check("conflict class is not invented", first.conversation.get("conflict_status"), "UNKNOWN")
+    check("protected conflict reference remains visible",
+          payload["conflict_ref"] in first.conversation.get("limites_conflito", ""), True)
+    check("no invented commercial fields", assert_no_invented_fields(first.dossier), [])
+
+    plan = first.dossier.get("meeting_plan") or {}
+    check("native readback builds meeting plan", bool(plan), True)
+    check("plan stage UNKNOWN", plan.get("commercial_stage"), "UNKNOWN")
+    check("plan objective UNKNOWN", plan.get("objective"), "UNKNOWN")
+    check("plan work kind UNKNOWN", plan.get("work_kind"), "UNKNOWN")
+    check("plan limited", plan.get("limited"), True)
+    check("plan carries inbound scope guard",
+          "dispatch_attempted=false" in (plan.get("scope_limits") or []), True)
+
+    injected_plan = json.loads(json.dumps(payload))
+    injected_plan["meeting_plan"] = {
+        "schema": "MEETCFG_MEETING_PLAN/1.0",
+        "commercial_stage": "PROPOSTA",
+        "objective": "Emitir proposta final",
+        "participant_roles": [{"name": "Alice", "role": "decisor"}],
+        "unanswered_questions": [],
+        "answered_questions": ["all answered"],
+        "evidence_to_confirm": ["prova inventada"],
+        "scope_limits": [],
+        "conflict_limits": [],
+        "advancement_criterion": "assinar contrato",
+        "work_kind": "PROPOSTA",
+    }
+    ignored = consume(injected_plan, store=ReceiptStore(), now=NOW, bind_session=False)
+    ignored_plan = (ignored.dossier or {}).get("meeting_plan") or {}
+    check("native injected plan cannot set stage", ignored_plan.get("commercial_stage"), "UNKNOWN")
+    check("native injected plan stays limited", ignored_plan.get("limited"), True)
+    ignored_blob = json.dumps(ignored.dossier, ensure_ascii=False)
+    check("native injected objective absent", "Emitir proposta final" in ignored_blob, False)
+    check("native injected participant absent", "Alice" in ignored_blob, False)
+    check("native injected evidence absent", "prova inventada" in ignored_blob, False)
+
+    replayed = 0
+    sessions = {first.session_id}
+    for _ in range(99):
+        replay = consume(payload, store=store, now=NOW, bind_session=True)
+        sessions.add(replay.session_id)
+        replayed += int(replay.ok and replay.replayed and replay.version == 1)
+    check("99 native replays", replayed, 99)
+    check("native replay stays one session", len(sessions), 1)
+    check("native replay stays one context", len(store), 1)
+
+    identity_cases = (
+        ("same receipt changed account", {"account_id": "10000000-0000-4000-8000-000000000002"}),
+        ("same receipt changed action", {"action_id": "20000000-0000-4000-8000-000000000002"}),
+        ("same receipt changed canonical", {"canonical_entity_id": "canary:entity:other"}),
+        ("same receipt dropped canonical", {"canonical_entity_id": ""}),
+        ("same receipt changed logical", {"logical_id": "canary-meetcfg-native-readback-other"}),
+        ("new receipt same identity", {
+            "receipt": "inbound:confenge_web:canary-meetcfg-native-readback-002",
+            "acknowledged_at": "2026-09-03T12:01:00Z",
+        }),
+        ("new receipt changed action", {
+            "receipt": "inbound:confenge_web:canary-meetcfg-native-readback-002",
+            "acknowledged_at": "2026-09-03T12:01:00Z",
+            "action_id": "20000000-0000-4000-8000-000000000002",
+        }),
+    )
+    for label, changes in identity_cases:
+        changed = json.loads(json.dumps(payload))
+        changed.update(changes)
+        conflict = consume(changed, store=store, now=NOW, bind_session=True)
+        check(f"native {label} refused", conflict.reason, IDENTITY_CONFLICT)
+        check(f"native {label} not accepted", conflict.ok, False)
+        held = store.get(payload["logical_id"])
+        check(f"native {label} preserves version", held.version, 1)
+        check(f"native {label} preserves receipt", held.receipt, payload["receipt"])
+        check(f"native {label} preserves action", held.dossier.get("action_id"), payload["action_id"])
+    check("native identity conflicts add no context", len(store), 1)
+
+    context_payload = load_fx("accepted.json")
+    missing_context_hash = json.loads(json.dumps(context_payload))
+    missing_context_hash.pop("policy_hash")
+    check("legacy context missing authority hash fails closed",
+          consume(missing_context_hash, store=ReceiptStore(), now=NOW,
+                  bind_session=False).reason,
+          SCHEMA_UNPINNED)
+    divergent_context_hash = json.loads(json.dumps(context_payload))
+    divergent_context_hash["policy_hash"] = "0" * 64
+    check("legacy context divergent authority hash fails closed",
+          consume(divergent_context_hash, store=ReceiptStore(), now=NOW,
+                  bind_session=False).reason,
+          SCHEMA_PIN_MISMATCH)
+
+    failures = []
+    for label, mutate, reason in (
+        ("missing hash", lambda d: d.pop("hash"), SCHEMA_UNPINNED),
+        ("divergent hash", lambda d: d.__setitem__("hash", "0" * 64), SCHEMA_PIN_MISMATCH),
+        ("divergent policy", lambda d: d.__setitem__("policy_version", "NET_NEW_INBOUND_HANDRAISER/9"), SCHEMA_PIN_MISMATCH),
+        ("rejected", lambda d: d.__setitem__("outcome", "REJECTED_WITH_REASON"), REJECTED_WITH_REASON),
+        ("unknown", lambda d: d.__setitem__("outcome", "UNKNOWN"), UNKNOWN_OUTCOME),
+        ("masked rejected", lambda d: d.update({"outcome": "REJECTED_WITH_REASON", "decision": "ACCEPTED"}), UNKNOWN_OUTCOME),
+        ("masked unknown", lambda d: d.update({"outcome": "UNKNOWN", "decision": "ACCEPTED"}), UNKNOWN_OUTCOME),
+        ("outbound eligible", lambda d: d.__setitem__("outbound_eligible", True), OUTBOUND_NOT_ELIGIBLE),
+        ("auto send", lambda d: d.__setitem__("auto_send", True), OUTBOUND_NOT_ELIGIBLE),
+        ("dispatch attempted", lambda d: d.__setitem__("dispatch_attempted", True), OUTBOUND_NOT_ELIGIBLE),
+        ("handoff denied", lambda d: d.__setitem__("meetcfg_handoff_allowed", False), READBACK_INCOMPLETE),
+        ("missing account", lambda d: d.pop("account_id"), READBACK_INCOMPLETE),
+        ("missing action", lambda d: d.pop("action_id"), READBACK_INCOMPLETE),
+        ("missing ack", lambda d: d.pop("acknowledged_at"), READBACK_INCOMPLETE),
+    ):
+        bad = json.loads(json.dumps(payload))
+        mutate(bad)
+        result = consume(bad, store=ReceiptStore(), now=NOW, bind_session=True)
+        check(f"native {label} refused", result.reason, reason)
+        check(f"native {label} creates no context", result.session_id, None)
+        failures.append(result.ok)
+    check("all native failures fail closed", any(failures), False)
 
 
 def test_fail_closed():
@@ -744,6 +886,32 @@ def test_http(label: str, out_path: str | None = None) -> dict:
     check("http session next state", cbody.get("proximo_estado_comercial"),
           "fechar o escopo do primeiro ciclo")
 
+    native_payload = load_fx("native_warmbly_readback.json")
+    native_http = client.post("/api/handraiser/ingest", json=native_payload)
+    native_body = native_http.json()
+    check("http native readback 200", native_http.status_code, 200)
+    check("http native readback accepted", native_body.get("ok"), True)
+    check("http native logical session",
+          native_body.get("session_id"), session_id_for(native_payload["logical_id"]))
+    for field in ("outbound_eligible", "auto_send", "dispatch_attempted"):
+        check(f"http native {field} false", native_body.get(field), False)
+    native_ctx = client.get(
+        f"/api/session/context?meeting={native_body.get('session_id')}"
+    )
+    check("http native context 200", native_ctx.status_code, 200)
+    check("http native plan limited",
+          (native_ctx.json().get("meeting_plan") or {}).get("limited"), True)
+    check("http native company UNKNOWN", native_ctx.json().get("empresa"), "UNKNOWN")
+
+    native_missing_hash = json.loads(json.dumps(native_payload))
+    native_missing_hash.pop("hash")
+    native_refused = client.post("/api/handraiser/ingest", json=native_missing_hash)
+    check("http native missing hash 400", native_refused.status_code, 400)
+    check("http native missing hash reason",
+          native_refused.json().get("reason"), SCHEMA_UNPINNED)
+    check("http native missing hash no session",
+          native_refused.json().get("session_id"), None)
+
     listed = client.get("/api/handraiser/list")
     check("http list 200", listed.status_code, 200)
     lbody = listed.json()
@@ -839,6 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
             test_accepted,
             test_multivertical_nuclei,
             test_inbound_only_net_new,
+            test_native_warmbly_readback,
             test_fail_closed,
             test_replay_and_update,
             test_out_of_order_and_identity,
@@ -864,6 +1033,7 @@ def main(argv: list[str] | None = None) -> int:
         test_accepted,
         test_multivertical_nuclei,
         test_inbound_only_net_new,
+        test_native_warmbly_readback,
         test_fail_closed,
         test_replay_and_update,
         test_out_of_order_and_identity,

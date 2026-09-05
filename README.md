@@ -168,18 +168,20 @@ log e o documento é descartado inteiro, nunca pela metade. Modelos válidos em
 
 ### Hand-raiser aceito (consumer)
 
-Meetcfg **não** cria CRM, lead, intenção nem elegibilidade outbound. Consome um
-item aceito (Warmbly `action_id` ou admissão Governance) e abre **uma** sessão
-de conversa com o dossiê já carregado.
+Meetcfg **não** cria CRM, lead, intenção nem elegibilidade outbound. Consome o
+`NetNewInboundReadback` persistido do Warmbly, ou o envelope de contexto
+compatível, e abre **uma** sessão de conversa em memória.
 
 - Dossiê do copiloto: `CONFENGE_SALES_CONTEXT/1.0` (um lead).
-- Coleção/índice: `CONFENGE_SALES_CONTEXT_EXPORT/1.0`. O GET
-  `/confenge/sales-context` do Warmbly ainda tagueia a coleção com o schema do
-  dossiê — o consumer recusa essa forma (`SCHEMA_MISMATCH_COLLECTION`).
-- `POST /api/handraiser/ingest` com o JSON do item (ou o wrap
-  `CONFENGE_HANDRAISER_ITEM/1.0`). Replay do mesmo `handraiser_id` devolve a
-  mesma sessão `hr:<id>`. `REJECTED_WITH_REASON` / `UNKNOWN` / freshness
-  inválida falham fechado, sem sessão.
+- Coleção/índice: `CONFENGE_SALES_CONTEXT_EXPORT/1.0`. Os itens do GET
+  `/confenge/sales-context` não carregam o pin desta autoridade; o consumer os
+  recusa como entrada runtime para hand-raiser.
+- `POST /api/handraiser/ingest` aceita diretamente o readback
+  `NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904`. Ele exige o hash da
+  autoridade Governance, `ACCEPTED`, receipt/ack/account/action persistidos e
+  todos os controles inbound fechados. Replay do mesmo `logical_id` devolve a
+  mesma sessão `hr:<id>`. `REJECTED_WITH_REASON`, `UNKNOWN`, pin divergente ou
+  readback incompleto falham fechado, sem sessão.
 - Pull opt-in: `WARMBLY_BASE_URL` + `WARMBLY_TOKEN` (backend only). Sem
   credencial o app sobe em modo manual. `POST /api/handraiser/refresh` e o
   botão **Atualizar conversas** puxam a coleção uma vez — nunca a cada

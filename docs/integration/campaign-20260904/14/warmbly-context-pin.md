@@ -1,4 +1,4 @@
-# Fragment — Warmbly must emit the Meetcfg context pin
+# Fragment — Warmbly persisted readback and Meetcfg context pin
 
 - campaign_id: 14
 - owner: Warmbly producer (issue #47 / campaign 07); ratify in goal 97/99
@@ -11,10 +11,21 @@
 
 Meetcfg does not copy the producer schema into a second authority. Runtime refuses unpinned native `SalesContextItem` and the current Warmbly export (`CONFENGE_SALES_CONTEXT_EXPORT/1.0` items without pin). Fixtures are test-only and are never a runtime fallback.
 
+The preferred runtime input is Warmbly main
+`33bd329437bc04a2e95ef0f4d562d26b85f34e35` `NetNewInboundReadback`, forwarded
+unchanged to `POST /api/handraiser/ingest`. Acceptance requires the exact
+Governance policy version/hash, `outcome=ACCEPTED`, `inbound_only=true`,
+`outbound_eligible=false`, `auto_send=false`, `dispatch_attempted=false`,
+`meetcfg_handoff_allowed=true`, and persisted receipt, acknowledgement,
+account, and action IDs. Business facts absent from the readback remain
+`UNKNOWN` in the context and limited meeting plan.
+
 Producer payload (accepted item) must include:
 
 - `schema`: `MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904`
 - `schema_hash`: `300a5970bbb5fc9c50682b67911e4fd067839e2c0c7de5fbc05ed05a076bffd5` (sha256 of the canonical contracts map below)
+- `policy_version`: `NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904`
+- `policy_hash`: `984f442690f7c74f309173b31008518631170d63733b5cc04c32abaf88c67e28`
 - `contracts.context`: `MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904`
 - `contracts.admission`: `NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904`
 - `contracts.state`: `CONFENGE_HANDRAISER_STATE/1.0.0-draft.20260904`
