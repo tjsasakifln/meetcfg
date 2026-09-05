@@ -297,6 +297,8 @@ def _norm_stage(raw) -> str:
     s = _str(raw)
     if not s:
         return ""
+    if s.upper() == UNKNOWN:
+        return UNKNOWN
     if s.upper() in COMMERCIAL_STAGES:
         return s.upper()
     return _STAGE_ALIASES.get(_fold(s), "")
