@@ -37,6 +37,9 @@ FIELDS: list[Field] = [
     # Hand-raiser consumer (Warmbly item → one conversation). Rollback = false.
     # Already-accepted receipts stay readable while new ingest is refused.
     Field("handraiser_consumer_enabled", "HANDRAISER_CONSUMER_ENABLED", bool, True),
+    # Next-step / meeting-plan conversion. Rollback = false: freeze the board,
+    # keep already-accepted context readable, refuse new observations.
+    Field("conversion_enabled", "MEETCFG_CONVERSION_ENABLED", bool, True),
     Field("handraiser_max_payload_bytes", "HANDRAISER_MAX_PAYLOAD_BYTES", int, 256000),
     Field("handraiser_freshness_max_age_s", "HANDRAISER_FRESHNESS_MAX_AGE_S", float, 0.0),
     # Optional read-only producer. Collection responses are never treated as a dossier.

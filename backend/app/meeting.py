@@ -62,6 +62,8 @@ class MeetingSession:
     handraiser_id: str | None = None
     handraiser_context: dict | None = None
     handraiser_version: int = 0
+    meeting_plan: dict | None = None
+    conversion_state: dict | None = None
     _next_id: int = 0
 
     def ingest(self, source: str, text: str) -> tuple[str, int | None, int | None]:
@@ -96,10 +98,24 @@ class MeetingSession:
         line = Line(id=self._next_id, source=source, text=text, at=now)
         self._next_id += 1
         self.lines.append(line)
+        self.refresh_conversion()
         if self.engine is not None:
             self.engine.poke()
         action = "accept_retract" if retract_id is not None else "accept"
         return (action, line.id, retract_id)
+
+    def refresh_conversion(self) -> dict:
+        """Rebuild next-step board from current lines. Flag off freezes the board."""
+        from .copilot.conversion import CONVERSION_DISABLED, empty_state, rebuild_from_session
+        enabled = bool(getattr(settings, "conversion_enabled", True))
+        if not enabled:
+            if self.conversion_state is None:
+                frozen = empty_state()
+                frozen["reason"] = CONVERSION_DISABLED
+                self.conversion_state = frozen
+            return self.conversion_state
+        self.conversion_state = rebuild_from_session(self, enabled=True)
+        return self.conversion_state
 
     def _find_recent_match(self, source: str, text: str, now: float) -> Line | None:
         other = "system" if source == "mic" else "mic"
@@ -152,6 +168,11 @@ def get_or_create(meeting_id: str) -> MeetingSession:
 
 def get(meeting_id: str) -> MeetingSession | None:
     return _sessions.get(meeting_id)
+
+
+def reset_sessions() -> None:
+    """Test hook: drop in-memory meetings. Not an HTTP path."""
+    _sessions.clear()
 
 
 def _prune() -> None:

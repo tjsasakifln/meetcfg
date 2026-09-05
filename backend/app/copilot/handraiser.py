@@ -1183,7 +1183,7 @@ def consume(
             "offer_candidate", "private_asset", "conflict", "identity",
             "situation", "permitted", "auto_send", "outbound_eligible",
             "qualification_state", "schema_hash", "contracts", "owner_links",
-            "decision_role", "decision",
+            "decision_role", "decision", "meeting_plan", "commercial_stage",
         ):
             if k in doc:
                 extras[k] = doc[k]
@@ -1286,6 +1286,13 @@ def consume(
     hid = _str(dossier.get("handraiser_id"))
     receipt = _receipt_of(dossier, doc)
     dossier["receipt"] = receipt
+    from .conversion import attach_meeting_plan
+    plan_src = extras if isinstance(extras, dict) else {}
+    if isinstance(doc, dict) and doc.get("meeting_plan") is not None:
+        plan_src = {**plan_src, "meeting_plan": doc["meeting_plan"]}
+    if isinstance(item, dict) and item.get("meeting_plan") is not None:
+        plan_src = {**plan_src, "meeting_plan": item["meeting_plan"]}
+    attach_meeting_plan(dossier, plan_src)
     conversation = render_conversation_layer(dossier)
     inbound_only = dossier.get("inbound_only") if "inbound_only" in dossier else None
 
@@ -1347,6 +1354,8 @@ def _bind(record: AcceptedRecord) -> None:
     session.handraiser_id = record.handraiser_id
     session.handraiser_context = record.dossier
     session.handraiser_version = record.version
+    plan = record.dossier.get("meeting_plan") if isinstance(record.dossier, dict) else None
+    session.meeting_plan = plan if isinstance(plan, dict) else None
 
 
 def context_for_session(session, *, refresh: bool = False, enabled: bool = True) -> dict | None:

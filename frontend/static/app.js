@@ -214,6 +214,7 @@ function connectCopilot() {
     else if (msg.type === "transcript") addLine(msg);
     else if (msg.type === "retract") retractLine(msg.id);
     else if (msg.type === "handraiser_context") renderLeadContext(msg);
+    else if (msg.type === "conversion_update") renderConversionBoard(msg);
     else if (msg.type === "copilot_status") {
       if (msg.state === "thinking") setCopilotStatus("pensando…", true);
       else if (msg.state === "error") setCopilotStatus("erro: " + (msg.msg || "falhou"));
@@ -456,6 +457,102 @@ function loadLeadContext() {
     .catch(() => {});
 }
 
+function renderConversionPlan(plan, reason) {
+  const fields = $("conversionPlanFields");
+  if (!fields) return;
+  fields.textContent = "";
+  const rows = plan && typeof plan === "object" ? [
+    ["estágio comercial", plan.commercial_stage || "UNKNOWN"],
+    ["objetivo único", plan.objective || "UNKNOWN"],
+    ["tipo de trabalho", plan.work_kind_label || plan.work_kind || "UNKNOWN"],
+    ["critério de avanço", plan.advancement_criterion || "UNKNOWN"],
+    ["papel dos participantes", (plan.participant_roles || []).map((r) => {
+      if (!r || typeof r !== "object") return "UNKNOWN";
+      return (r.name || "UNKNOWN") + " (" + (r.role || "UNKNOWN") + ")";
+    }).join("; ") || "UNKNOWN"],
+  ] : [["plano", reason || "ausente — modo limitado/manual"]];
+  rows.forEach(([label, value]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value || "UNKNOWN";
+    fields.append(dt, dd);
+  });
+}
+
+function renderConversionBoard(msg) {
+  const list = $("conversionBoard");
+  const qEl = $("conversionQuestions");
+  if (!list) return;
+  list.textContent = "";
+  const board = (msg && msg.board) || [];
+  board.forEach((item) => {
+    const li = document.createElement("li");
+    const st = document.createElement("span");
+    st.className = "state" + (item.state === "SUGGESTED" ? " suggested" : "") + (item.state === "REVOKED" ? " revoked" : "");
+    st.textContent = item.state || item.estado || "UNKNOWN";
+    const body = document.createElement("span");
+    body.textContent = " " + [
+      item.action || item["ação"] || "UNKNOWN",
+      item.owner || item["responsável"] || "UNKNOWN",
+      item.window || item["prazo/janela"] || "UNKNOWN",
+    ].join(" · ");
+    li.append(st, body);
+    list.appendChild(li);
+  });
+  const qs = (msg && (msg.pending_questions || msg.questions_to_ask)) || [];
+  if (qEl) qEl.textContent = qs.length ? qs.join(" ") : "";
+}
+
+function loadConversion() {
+  return fetch(`/api/session/conversion?meeting=${encodeURIComponent(meetingId)}`)
+    .then((r) => r.json())
+    .then((body) => {
+      if (!body) return;
+      renderConversionPlan(body.meeting_plan, body.reason);
+      renderConversionBoard(body);
+    })
+    .catch(() => {});
+}
+
+function endMeeting() {
+  const btn = $("endMeetingBtn");
+  if (btn) btn.disabled = true;
+  return fetch("/api/meeting/end", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ meeting: meetingId }),
+  })
+    .then((r) => r.json())
+    .then((body) => {
+      const box = $("conversionEnd");
+      if (!box) return;
+      box.classList.remove("hidden");
+      box.textContent = "";
+      const dl = document.createElement("dl");
+      const keys = [
+        ["resumo factual", body && body["resumo factual"]],
+        ["lacunas", body && body.lacunas],
+        ["decisão alcançada/não alcançada", body && body["decisão alcançada/não alcançada"]],
+        ["próximo passo confirmado", body && body["próximo passo confirmado"]],
+        ["insumos para proposta", body && body["insumos para proposta"]],
+        ["itens que impedem preço/prazo firme", body && body["itens que impedem preço/prazo firme"]],
+      ];
+      keys.forEach(([label, value]) => {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        if (Array.isArray(value)) dd.textContent = value.join("; ") || "nenhum";
+        else if (value && typeof value === "object") dd.textContent = JSON.stringify(value);
+        else dd.textContent = value == null || value === "" ? "nenhum" : String(value);
+        dl.append(dt, dd);
+      });
+      box.appendChild(dl);
+    })
+    .catch(() => {})
+    .finally(() => { if (btn) btn.disabled = false; });
+}
+
 $("startBtn").onclick = start;
 $("stopBtn").onclick = stop;
 $("adviseBtn").onclick = () => {
@@ -465,8 +562,11 @@ $("adviseBtn").onclick = () => {
 };
 const refreshBtn = $("refreshConversasBtn");
 if (refreshBtn) refreshBtn.onclick = refreshConversas;
+const endBtn = $("endMeetingBtn");
+if (endBtn) endBtn.onclick = endMeeting;
 // Connect on load so the test mode (tools/inject_transcript.py) can drive the
 // page without anyone clicking Iniciar.
 connectCopilot();
 loadLeadContext();
 loadConversations();
+loadConversion();
