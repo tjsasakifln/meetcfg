@@ -31,10 +31,11 @@ reload_settings()
 
 from app.copilot.conversion import (  # noqa: E402
     CONVERSION_DISABLED, NEXT_STEP_STATES, SCHEMA_MEETING_PLAN,
-    TIAGO_FIELDS, WORK_KINDS, apply_lines, crm_side_effect_keys,
-    firm_price_deadline_blockers, live_commitments, meeting_plan_of,
-    operational_output, parse_meeting_plan, questions_to_ask,
-    _extract_commitment,
+    TIAGO_FIELDS, UTT_COMMIT, UTT_CONFIRM, UTT_HEDGE, UTT_QUESTION,
+    UTT_REFUSAL, WORK_KINDS, apply_lines, classify_utterance,
+    crm_side_effect_keys, firm_price_deadline_blockers, is_question,
+    live_commitments, meeting_plan_of, operational_output, parse_meeting_plan,
+    questions_to_ask, _extract_commitment,
 )
 from app.copilot.handraiser import (  # noqa: E402
     CONSUMER_DISABLED, PIN_HASH, SCHEMA_UNPINNED, consume, reset_store, session_id_for,
@@ -310,6 +311,180 @@ def test_scenarios():
     check("non-explicit reason", explicit.get("reason"), "END_NOT_EXPLICIT")
 
 
+def _mutual(lines, plan=None):
+    """True when this exchange reaches MUTUALLY_CONFIRMED."""
+    state = apply_lines(plan, [{"source": s, "text": t} for s, t in lines])
+    return bool(live_commitments(state)), state
+
+
+def test_adversarial_confirmation():
+    """Regressions for the adversarial review: S1, S3(b)(c)(d)(e), S5.
+
+    "Vou avaliar", silence, a one-sided statement or a copilot suggestion
+    must never become MUTUALLY_CONFIRMED.
+    """
+    print("adversarial: deferral, question, refusal, echo, unknown source, no date")
+
+    # --- S1: deferral language, including "before deciding with someone else"
+    hedges = (
+        "Vou ver com a equipe antes de fechar o escopo.",
+        "Preciso levar para o time.",
+        "Vou alinhar internamente antes de decidir o escopo.",
+        "Preciso consultar meu sócio sobre o escopo.",
+        "Vou falar com a diretoria sobre a proposta.",
+        "Tenho que ver com o financeiro antes de fechar o escopo.",
+        "Vou levar para o jurídico.",
+        "Vou avaliar.",
+    )
+    for text in hedges:
+        check(f"S1 hedge classified: {text[:34]!r}", classify_utterance(text), UTT_HEDGE)
+        mutual, state = _mutual([("system", text), ("mic", "Combinado.")])
+        check(f"S1 hedge + combinado not mutual: {text[:34]!r}", mutual, False)
+        check(f"S1 hedge board is avaliar: {text[:34]!r}",
+              all(i.get("action") == "avaliar" for i in state["board"]), True)
+
+    # S1 must not swallow a real commitment that happens to start with "vou".
+    check("S1 negative: 'vou enviar' is a commitment not a hedge",
+          classify_utterance("Vou enviar o memorial de cálculo até sexta."), UTT_COMMIT)
+    mutual, state = _mutual([
+        ("mic", "Vou enviar o memorial de cálculo até sexta."),
+        ("system", "Combinado, você envia o memorial até sexta."),
+    ])
+    check("S1 negative: real 'vou enviar' still confirms", mutual, True)
+    check("S1 negative: owner resolved", state["board"][-1]["owner"], "founder")
+
+    # --- S3(b): a restatement or a clarifying question is not agreement
+    check("S3b question detected with '?'",
+          is_question("Você me envia o memorial de cálculo?"), True)
+    check("S3b question detected by marker in short reply",
+          is_question("Enviar o memorial de cálculo quando"), True)
+    check("S3b question class", classify_utterance("Enviar o memorial de cálculo quando?"),
+          UTT_QUESTION)
+    mutual, state = _mutual([
+        ("system", "Você me envia o memorial de cálculo?"),
+        ("mic", "Enviar o memorial de cálculo quando?"),
+    ])
+    check("S3b two questions not mutual", mutual, False)
+    check("S3b stays one-sided",
+          all(i["state"] in ("SAID_BY_LEAD", "SAID_BY_FOUNDER") for i in state["board"]), True)
+    mutual, _ = _mutual([
+        ("system", "Posso enviar o memorial de cálculo até sexta-feira."),
+        ("mic", "O memorial de cálculo até sexta?"),
+    ])
+    check("S3b question back at a real commitment not mutual", mutual, False)
+
+    # --- S3(c): an explicit refusal of the action must not confirm it
+    check("S3c refusal not extracted as commitment",
+          _extract_commitment("Não vou enviar o memorial de cálculo, não temos isso.", "mic"),
+          None)
+    mutual, state = _mutual([
+        ("system", "Você me envia o memorial de cálculo?"),
+        ("mic", "Não vou enviar o memorial de cálculo, não temos isso."),
+    ])
+    check("S3c refusal not mutual", mutual, False)
+    check("S3c refusal leaves no confirmed enviar",
+          any(i["state"] == "MUTUALLY_CONFIRMED" for i in state["board"]), False)
+    for text in ("Não vou retornar essa semana.",
+                 "Não vamos agendar visita agora.",
+                 "Não vou incluir o sócio nesta conversa."):
+        check(f"S3c action-local refusal not a commitment: {text[:30]!r}",
+              _extract_commitment(text, "system"), None)
+    # ...and an action-local refusal must not revoke other live commitments
+    mutual, state = _mutual([
+        ("system", "Posso enviar o memorial de cálculo até sexta-feira."),
+        ("mic", "Combinado, você envia o memorial até sexta."),
+        ("system", "Não vou retornar essa semana."),
+    ])
+    check("S3c local refusal keeps the unrelated confirmed item", mutual, True)
+
+    # --- S3(d): an unrecognised source is not a third speaker
+    mutual, state = _mutual([
+        ("mic", "Te envio o memorial de cálculo até sexta."),
+        ("copilot", "Combinado."),
+    ])
+    check("S3d copilot source cannot confirm", mutual, False)
+    check("S3d copilot line ignored entirely", len(state["board"]), 1)
+    mutual, state = _mutual([
+        ("copilot", "Você envia o memorial de cálculo até sexta."),
+        ("mic", "Combinado."),
+    ])
+    check("S3d copilot source cannot open a pair", mutual, False)
+    check("S3d copilot line produced no item", state["board"], [])
+    from app.meeting import VALID_SOURCES, is_valid_source
+    check("S3d source enum is closed", sorted(VALID_SOURCES), ["mic", "system"])
+    check("S3d unknown source rejected", is_valid_source("copilot"), False)
+    reset_sessions()
+    s_bad = get_or_create("adv-source")
+    check("S3d ingest rejects unknown source",
+          s_bad.ingest("copilot", "Combinado.")[0], "reject")
+    check("S3d rejected line not stored", len(s_bad.lines), 0)
+
+    # --- S3(e): echo retraction must not turn one speaker into two
+    reset_sessions()
+    s_echo = get_or_create("adv-echo")
+    s_echo.ingest("mic", "Te envio o memorial de cálculo até sexta.")
+    s_echo.ingest("mic", "Então fica combinado.")
+    action, _lid, retract_id = s_echo.ingest("system", "Então fica combinado.")
+    check("S3e echo retraction happened", action, "accept_retract")
+    check("S3e retracted the earlier mic line", retract_id is not None, True)
+    check("S3e surviving system line flagged echo-derived",
+          s_echo.lines[-1].echo_derived, True)
+    echo_state = s_echo.conversion_state or {}
+    check("S3e echo bleed not mutual", live_commitments(echo_state), [])
+    check("S3e commitment stays one-sided",
+          [i["state"] for i in echo_state.get("board") or []], ["SAID_BY_FOUNDER"])
+    # legitimate echo suppression (mic dup of a system line) still works
+    reset_sessions()
+    s_sup = get_or_create("adv-suppress")
+    s_sup.ingest("system", "Posso enviar o memorial de cálculo até sexta-feira.")
+    check("S3e mic echo still suppressed",
+          s_sup.ingest("mic", "Posso enviar o memorial de cálculo até sexta-feira.")[0],
+          "suppress")
+
+    # --- S5: no date, or no owner, means no confirmation
+    mutual, state = _mutual([
+        ("system", "Me retorna depois, ainda sem data."),
+        ("mic", "Combinado."),
+    ])
+    check("S5 no date not mutual", mutual, False)
+    check("S5 window stays UNKNOWN",
+          all(i["window"] == "UNKNOWN" for i in state["board"]), True)
+    qs = list(state.get("pending_questions") or [])
+    check("S5 re-asks the date", any("data ou janela" in q for q in qs), True)
+    check("S5 re-asks the owner", any("responsável" in q for q in qs), True)
+    mutual, _ = _mutual([
+        ("system", "O memorial de cálculo sai na sexta."),
+        ("mic", "Combinado."),
+    ])
+    check("S5 no owner not mutual", mutual, False)
+    mutual, _ = _mutual([
+        ("system", "Vamos enviar o memorial de cálculo até sexta."),
+        ("mic", "Combinado."),
+    ])
+    check("S5 joint owner on a deliverable not mutual", mutual, False)
+
+    # --- the legitimate path is untouched
+    mutual, state = _mutual([
+        ("system", "Sim, enviarei o memorial de cálculo até sexta-feira."),
+        ("mic", "Combinado, você envia o memorial até sexta."),
+    ])
+    check("LEGIT two-sided agreement with date confirms", mutual, True)
+    item = live_commitments(state)[-1]
+    check("LEGIT action", item["action"], "enviar documento")
+    check("LEGIT owner is the lead", item["owner"], "lead")
+    check("LEGIT window carried", "sexta" in item["window"].lower(), True)
+    check("LEGIT origin", item["origin"], "lead+founder")
+    check("LEGIT classes recorded",
+          sorted(item.get("utterance_classes", {}).values()),
+          sorted([UTT_COMMIT, UTT_CONFIRM]))
+    out = operational_output(None, state, explicit=True)
+    check("LEGIT decisão alcançada", out["decisao"], "alcançada")
+
+    # sanity on the classifier's remaining classes
+    check("classifier: refusal", classify_utterance("Não quero seguir."), UTT_REFUSAL)
+    check("classifier: confirm", classify_utterance("Combinado."), UTT_CONFIRM)
+
+
 def test_handoff_consume_and_replay():
     print("ACCEPTED pinned handoff → one session; 100 replays; unpinned fail-closed")
     reset_store()
@@ -463,6 +638,20 @@ def test_http(label: str, out_path: str | None = None) -> dict:
         })
         check(f"http inject {line['source']} accepted-ish", inj.status_code, 200)
 
+    # S3(d): the HTTP surface refuses an unrecognised channel outright.
+    bad_src = client.post("/api/inject", json={
+        "meeting": sid, "source": "copilot", "text": "Combinado.",
+    })
+    check("http inject unknown source refused", bad_src.status_code, 422)
+    bad_ws = ""
+    try:
+        with client.websocket_connect("/ws/audio?meeting=x&source=copilot") as sock:
+            bad_ws = json.loads(sock.receive_text()).get("reason") or ""
+    except Exception as exc:  # noqa: BLE001 - a closed socket is the pass case
+        bad_ws = f"closed:{type(exc).__name__}"
+    check("http ws unknown source refused",
+          bad_ws.startswith("UNKNOWN_SOURCE") or bad_ws.startswith("closed:"), True)
+
     conv = client.get(f"/api/session/conversion?meeting={sid}")
     check("http conversion 200", conv.status_code, 200)
     cbody = conv.json()
@@ -535,6 +724,7 @@ def main(argv: list[str] | None = None) -> int:
         test_plan_validation,
         test_questions_not_repeated,
         test_scenarios,
+        test_adversarial_confirmation,
         test_handoff_consume_and_replay,
         test_session_ingest_path,
         test_kill_switch_and_pii,

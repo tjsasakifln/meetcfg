@@ -101,16 +101,50 @@ _KIND_ALIASES = {
     "proposta": "PROPOSTA",
 }
 
+# Deliberation verbs: "I need to look at / talk about / take this somewhere"
+# before deciding. Note the list deliberately excludes delivery verbs
+# (enviar, mandar, agendar): "vou enviar o memorial até sexta" is a real
+# commitment and must keep reaching MUTUALLY_CONFIRMED.
+_DELIB_VERB = (
+    r"(?:ver|falar|conversar|levar|consultar|alinhar|checar|verificar|discutir|"
+    r"validar|submeter|apresentar|passar|olhar|estudar|analisar|avaliar|pensar|"
+    r"revisar|conferir|entender|pesquisar)"
+)
+# ...with somebody who is not the person in the room: the hedge is that the
+# decision is elsewhere.
+_DELIB_TARGET = (
+    r"(?:a equipe|o time|meu time|minha equipe|nosso time|nossa equipe|"
+    r"internamente|no interno|os socios|o socio|meu socio|meus socios|"
+    r"a diretoria|o diretor|o juridico|o financeiro|o conselho|meu chefe|"
+    r"a matriz|meus colegas|meu superior|a area tecnica|o setor|"
+    r"a gestao|o gestor|o board|a controladoria|os envolvidos|"
+    r"quem decide|o decisor|a engenharia)"
+)
 _EVAL_RE = re.compile(
-    r"\b(vou avaliar|vou pensar|vamos nos falando|preciso avaliar|"
-    r"vou ver internamente|deixa eu pensar|deixe[- ]me pensar|"
-    r"vou analisar)\b",
+    # 1) literal hedges already covered, plus close equivalents
+    r"\b(?:vou avaliar|vou pensar|vou analisar|vou estudar|vou verificar|"
+    r"vou dar uma olhada|vamos nos falando|vamos se falando|preciso avaliar|"
+    r"preciso pensar|preciso analisar|preciso estudar|preciso de um tempo|"
+    r"vou ver internamente|vou verificar internamente|vou checar internamente|"
+    r"deixa eu pensar|deixe[- ]me pensar|me deixa pensar|deixa eu ver|"
+    r"depois eu vejo|depois eu retorno com|ainda nao posso decidir|"
+    r"nao sou eu que decido|nao depende so de mim|nao decido sozinho|"
+    r"preciso da aprovacao|depende de aprovacao|depende do meu socio|"
+    r"depende da diretoria|tenho que ver isso|preciso ver isso)\b"
+    # 2) structural: deliberation verb + a third party / internal target
+    r"|\b(?:vou|preciso|tenho que|tenho de|vamos|quero|gostaria de|deixa eu|"
+    r"deixe[- ]me|teria que|iria|pretendo|devo)\s+(?:\w+\s+){0,2}?"
+    + _DELIB_VERB + r"\b[^.;!?]{0,40}?\b" + _DELIB_TARGET + r"\b",
     re.I,
 )
+# Global refusal: the whole thread stops. Action-local refusal ("não vou
+# enviar o memorial") is handled by _negated_any in _extract_commitment, so
+# that one refused deliverable does not revoke every other live commitment.
 _REFUSAL_RE = re.compile(
     r"\b(n[aã]o quero|n[aã]o vamos seguir|recuso|sem interesse|"
     r"n[aã]o tenho interesse|n[aã]o vamos fechar|n[aã]o vamos continuar|"
-    r"n[aã]o quero seguir)\b",
+    r"n[aã]o quero seguir|n[aã]o vamos prosseguir|n[aã]o vamos avan[cç]ar|"
+    r"n[aã]o h[aá] interesse|vamos parar por aqui|n[aã]o quero mais)\b",
     re.I,
 )
 _REVOKE_RE = re.compile(
@@ -129,6 +163,55 @@ _WINDOW_RE = re.compile(
     r"dia\s+\d{1,2})\b",
     re.I,
 )
+
+# --- utterance classification -------------------------------------------
+# A next step only becomes MUTUALLY_CONFIRMED when BOTH halves are real
+# human affirmations. A question, a hedge, a refusal or a copilot suggestion
+# is never one half of a mutual agreement.
+UTT_QUESTION = "QUESTION"
+UTT_HEDGE = "HEDGE"
+UTT_REFUSAL = "REFUSAL"
+UTT_CONFIRM = "CONFIRM"
+UTT_COMMIT = "COMMIT"
+UTT_ASSERT = "ASSERT"
+
+#: classes that may open a next step (the first half of a mutual pair)
+AFFIRMATIVE_CLASSES = (UTT_CONFIRM, UTT_COMMIT, UTT_ASSERT)
+#: classes that may close a next step (the confirming half). Strictly
+#: narrower: restating or asserting is not agreeing.
+CONFIRMING_CLASSES = (UTT_CONFIRM, UTT_COMMIT)
+
+_INTERROG = (
+    r"(?:quando|quem|como|por que|qual|quais|onde|quanto|quantos|quantas|"
+    r"sera que|pode me dizer|me diz)"
+)
+# A transcriber often drops the "?". An unpunctuated question puts the
+# interrogative at the start ("Quando você envia") or at the end ("Enviar o
+# memorial quando"). Mid-sentence it is usually comparative ("faremos como
+# você pediu") and must not disqualify a real confirmation.
+_INTERROG_START_RE = re.compile(r"^\s*(?:e\s+|entao\s+|mas\s+)?" + _INTERROG + r"\b", re.I)
+_INTERROG_END_RE = re.compile(r"\b" + _INTERROG + r"\b(?:\s+\w+){0,2}\s*[.!]*\s*$", re.I)
+# First person singular: the speaker is taking the action.
+_FIRST_PERSON_SG_RE = re.compile(
+    r"\b(eu|vou|posso|consigo|preciso|te envio|te mando|envio|enviarei|mando|"
+    r"mandarei|retorno|retornarei|fico de|me comprometo|garanto|providencio|"
+    r"providenciarei|assumo|separo|preparo|levo|trago|marco|agendo)\b",
+    re.I,
+)
+# First person plural: a joint action; the owner is both sides, which is a
+# resolvable owner for a joint decision but NOT for a deliverable.
+_FIRST_PERSON_PL_RE = re.compile(
+    r"\b(vamos|fechamos|combinamos|incluimos|revisamos|agendamos|marcamos|"
+    r"faremos|enviaremos|revisaremos|fecharemos|incluiremos)\b",
+    re.I,
+)
+_SECOND_PERSON_RE = re.compile(r"\b(voce|vc|voces)\b", re.I)
+
+JOINT_OWNER = "lead+founder"
+#: actions whose owner must be one identified party — "vamos enviar" does not
+#: say who sends, so it must not confirm.
+_DELIVERABLE_ACTIONS = ("enviar", "enviar documento", "enviar proposta", "retornar")
+
 _FOLD_ACCENTS = str.maketrans(
     "áàãâäéèêëíìîïóòõôöúùûüçÁÀÃÂÄÉÈÊËÍÌÎÏÓÒÕÔÖÚÙÛÜÇ",
     "aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC",
@@ -141,6 +224,48 @@ def _str(v) -> str:
 
 def _fold(s: str) -> str:
     return _str(s).translate(_FOLD_ACCENTS).lower()
+
+
+def is_question(text: str) -> bool:
+    """A question is never an affirmation.
+
+    Any '?' counts, and so does an interrogative marker in a short reply —
+    "Enviar o memorial de cálculo quando?" and "Enviar quando" are the same
+    utterance with and without punctuation from the transcriber.
+    """
+    t = _str(text)
+    if not t:
+        return False
+    if "?" in t:
+        return True
+    low = _fold(t)
+    if len(low.split()) > 12:
+        return False
+    return bool(_INTERROG_START_RE.search(low) or _INTERROG_END_RE.search(low))
+
+
+def classify_utterance(text: str) -> str:
+    """Classify one transcript line for the mutual-confirmation gate.
+
+    Order matters: a hedge or a question dressed in agreement words is still
+    a hedge or a question. Never returns a class that makes confirmation
+    easier than the raw text warrants.
+    """
+    t = _str(text)
+    if not t:
+        return UTT_ASSERT
+    low = _fold(t)
+    if _REVOKE_RE.search(low) or _REFUSAL_RE.search(low):
+        return UTT_REFUSAL
+    if _EVAL_RE.search(low):
+        return UTT_HEDGE
+    if is_question(t):
+        return UTT_QUESTION
+    if _CONFIRM_RE.search(low):
+        return UTT_CONFIRM
+    if _FIRST_PERSON_SG_RE.search(low) or _FIRST_PERSON_PL_RE.search(low):
+        return UTT_COMMIT
+    return UTT_ASSERT
 
 
 def _copy_state(state: dict | None) -> dict:
@@ -478,6 +603,10 @@ def _new_item(board_state: dict, **fields) -> dict:
         "state": "UNKNOWN",
         "span": "",
         "questions": [],
+        # per-side utterance class, filled by _record_class; the mutual gate
+        # refuses to promote a pair that is not two real affirmations.
+        "utterance_classes": {},
+        "echo_derived": False,
     }
     item.update(fields)
     for key in ("action", "owner", "window", "input", "condition", "origin", "state"):
@@ -567,14 +696,38 @@ def _extract_role(low: str) -> str:
 
 
 def _negated(low: str, word: str) -> bool:
-    return bool(re.search(rf"\bnao\b.{{0,24}}\b{word}\b", low))
+    return bool(re.search(rf"\b(?:nao|nunca|jamais|nem)\b.{{0,24}}\b{word}\b", low))
+
+
+def _negated_any(low: str, *words: str) -> bool:
+    return any(_negated(low, w) for w in words)
+
+
+def _extract_owner(low: str, source: str) -> str:
+    """Who is on the hook. Never invents; UNKNOWN blocks confirmation."""
+    speaker = "lead" if source == "system" else "founder"
+    other = "founder" if source == "system" else "lead"
+    if _FIRST_PERSON_SG_RE.search(low):
+        return speaker
+    if _SECOND_PERSON_RE.search(low):
+        return other
+    if _FIRST_PERSON_PL_RE.search(low):
+        # "vamos fechar o escopo" — both sides own a joint decision. For a
+        # deliverable this is refused later by _promote_mutual.
+        return JOINT_OWNER
+    return UNKNOWN
 
 
 def _extract_commitment(text: str, source: str) -> dict | None:
     low = _fold(text)
     action = ""
     input_ = UNKNOWN
-    if re.search(r"\b(envi\w+|mando|mandar|te mando|te envio)\b", low):
+    if (
+        re.search(r"\b(envi\w+|mando|mandar|te mando|te envio)\b", low)
+        # S3(c): "não vou enviar o memorial" is a refusal of this action, not
+        # a commitment to it.
+        and not _negated_any(low, r"envi\w+", r"mand\w+")
+    ):
         if re.search(r"\b(documento|pdf|memorial|planta|laudo|art|projeto)\b", low):
             action = "enviar documento"
             input_ = _extract_doc_noun(low)
@@ -586,17 +739,19 @@ def _extract_commitment(text: str, source: str) -> dict | None:
     elif (
         re.search(r"\b(inclu\w+|chamar)\b", low)
         and re.search(r"\b(socio|diretor|decisor|quem decide)\b", low)
-        and not _negated(low, "incluir")
-        and not _negated(low, "chamar")
-        and not _negated(low, "socio")
-        and not _negated(low, "diretor")
-        and not _negated(low, "decisor")
+        and not _negated_any(low, r"inclu\w+", r"cham\w+", "socio", "diretor", "decisor")
     ):
         action = "incluir decisor"
         input_ = _extract_role(low)
-    elif re.search(r"\b(retorn\w+|me liga|depois a gente)\b", low):
+    elif (
+        re.search(r"\b(retorn\w+|me liga|depois a gente)\b", low)
+        and not _negated_any(low, r"retorn\w+", r"lig\w+")
+    ):
         action = "retornar"
-    elif re.search(r"\b(visita|inspecao|inspeccao|campo)\b", low) and not _negated(low, "visita"):
+    elif (
+        re.search(r"\b(visita|inspecao|inspeccao|campo)\b", low)
+        and not _negated_any(low, "visita", "inspecao", "inspeccao", "campo", r"agend\w+")
+    ):
         action = "agendar inspeção/campo"
     elif "escopo" in low and not _negated(low, "escopo"):
         action = "fechar escopo"
@@ -607,11 +762,7 @@ def _extract_commitment(text: str, source: str) -> dict | None:
     if not action:
         return None
     window = _extract_window(text) or UNKNOWN
-    owner = UNKNOWN
-    if re.search(r"\b(eu|vou|posso|te envio|te mando)\b", low):
-        owner = "lead" if source == "system" else "founder"
-    elif re.search(r"\b(voce|vc|voces)\b", low):
-        owner = "founder" if source == "system" else "lead"
+    owner = _extract_owner(low, source)
     return {
         "action": action,
         "owner": owner,
@@ -636,13 +787,81 @@ def _merge_fields(item: dict, extracted: dict) -> None:
     item["questions"] = missing_field_questions(item)
 
 
-def _promote_mutual(item: dict) -> bool:
+def _record_class(item: dict, speaker_state: str, utt_class: str,
+                  echo_derived: bool = False) -> None:
+    """Remember how each side phrased itself, per side, for the mutual gate."""
+    classes = item.get("utterance_classes")
+    if not isinstance(classes, dict):
+        classes = {}
+        item["utterance_classes"] = classes
+    classes[speaker_state] = utt_class
+    if echo_derived and item.get("state") == speaker_state:
+        item["echo_derived"] = True
+
+
+def _stated_class(item: dict) -> str:
+    """Class of the utterance that opened this item, from its own side."""
+    classes = item.get("utterance_classes")
+    if isinstance(classes, dict):
+        got = _str(classes.get(item.get("state")))
+        if got:
+            return got
+    return UTT_ASSERT
+
+
+def _promote_mutual(item: dict, *, confirming_class: str,
+                    confirming_echo: bool) -> bool:
+    """The ONLY door to MUTUALLY_CONFIRMED. Every gate lives here.
+
+    A next step is confirmed only when two different human speakers each
+    produced a real affirmation about the same action, and the snapshot can
+    name an owner and a date/window. Anything short of that stays pending and
+    keeps its missing-field questions.
+    """
+    item_id = item.get("id")
+
+    def _block(reason: str) -> bool:
+        log.info("conversion promote refused reason=%s item_id=%s", reason, item_id)
+        return False
+
     if item.get("state") == "SUGGESTED":
-        return False
-    if _fold(item.get("action") or "") == "avaliar":
-        return False
+        return _block("COPILOT_SUGGESTION_NOT_COMMITMENT")
     if item.get("state") == "REVOKED":
-        return False
+        return _block("REVOKED")
+    if _fold(item.get("action") or "") == "avaliar":
+        return _block("EVALUATION_NOT_ACCEPTANCE")
+
+    # S3(e): a line the echo suppressor produced by retracting the other
+    # stream's near-duplicate is known-duplicated speech, not a fresh
+    # utterance from the other party. It may never be a confirming half.
+    if confirming_echo:
+        return _block("ECHO_DERIVED_NOT_INDEPENDENT")
+    if item.get("echo_derived") is True:
+        return _block("ECHO_DERIVED_NOT_INDEPENDENT")
+
+    # S3(b): both halves must be actual affirmations. A question, a hedge or
+    # a refusal restating the same action is not agreement.
+    stated = _stated_class(item)
+    if stated not in AFFIRMATIVE_CLASSES:
+        return _block(f"NOT_AN_AFFIRMATION_{stated}")
+    if confirming_class not in CONFIRMING_CLASSES:
+        return _block(f"NOT_AN_AFFIRMATION_{confirming_class}")
+    # Invariant, kept explicit so it survives any widening of the class sets:
+    # at least one half must carry real agreement or commitment language.
+    if stated not in CONFIRMING_CLASSES and confirming_class not in CONFIRMING_CLASSES:
+        return _block("NO_AGREEMENT_LANGUAGE")
+
+    # S5: no date and no owner means there is nothing a human can act on.
+    owner = _str(item.get("owner"))
+    window = _str(item.get("window"))
+    if owner in ("", UNKNOWN):
+        return _block("OWNER_UNRESOLVED")
+    if window in ("", UNKNOWN):
+        return _block("WINDOW_UNRESOLVED")
+    if owner == JOINT_OWNER and _fold(item.get("action") or "") in _DELIVERABLE_ACTIONS:
+        # "vamos enviar o memorial" never says who sends it.
+        return _block("OWNER_NOT_INDIVIDUAL_FOR_DELIVERABLE")
+
     item["state"] = "MUTUALLY_CONFIRMED"
     item["origin"] = "lead+founder"
     item["questions"] = missing_field_questions(item)
@@ -660,10 +879,13 @@ def _open_from_other(state: dict, speaker_state: str) -> dict | None:
     return None
 
 
-def _line_parts(line) -> tuple[str, str]:
+def _line_parts(line) -> tuple[str, str, bool]:
+    """(source, text, echo_derived). echo_derived lines are known duplicates."""
     if isinstance(line, dict):
-        return _str(line.get("source")), _str(line.get("text"))
-    return _str(getattr(line, "source", "")), _str(getattr(line, "text", ""))
+        return (_str(line.get("source")), _str(line.get("text")),
+                bool(line.get("echo_derived")))
+    return (_str(getattr(line, "source", "")), _str(getattr(line, "text", "")),
+            bool(getattr(line, "echo_derived", False)))
 
 
 def _absorb_answers(state: dict, plan: dict | None, text: str, source: str) -> None:
@@ -698,7 +920,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
     if isinstance(plan, dict) and state.get("commercial_stage") is None:
         # Record authority stage once; never overwrite from speech.
         state["commercial_stage"] = plan.get("commercial_stage") or UNKNOWN
-    source, text = _line_parts(line)
+    source, text, echo_derived = _line_parts(line)
     if not text:
         return state
     low = _fold(text)
@@ -707,9 +929,13 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
         else "SAID_BY_FOUNDER" if source == "mic"
         else "UNKNOWN"
     )
-    origin = "lead" if speaker_state == "SAID_BY_LEAD" else (
-        "founder" if speaker_state == "SAID_BY_FOUNDER" else UNKNOWN
-    )
+    # S3(d): an unrecognised source is not a third speaker. It must never
+    # satisfy _open_from_other's "different speaker" test.
+    if speaker_state == "UNKNOWN":
+        log.warning("conversion observe reason=UNKNOWN_SOURCE_IGNORED source=%r", source)
+        return state
+    origin = "lead" if speaker_state == "SAID_BY_LEAD" else "founder"
+    utt_class = classify_utterance(text)
 
     if _REVOKE_RE.search(low) or _REFUSAL_RE.search(low):
         _revoke_live(state, origin=origin, span=text)
@@ -727,6 +953,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
             span=text[:120],
             condition="avaliação não é aceite",
         )
+        _record_class(item, speaker_state, utt_class, echo_derived)
         state["board"].append(item)
         log.info("conversion observe reason=EVALUATION_NOT_ACCEPTANCE item_id=%s", item["id"])
         _absorb_answers(state, plan, text, source)
@@ -740,15 +967,17 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
         pending = _open_from_other(state, speaker_state)
         if pending and _same_action(pending.get("action") or "", extracted["action"]):
             _merge_fields(pending, extracted)
+            _record_class(pending, speaker_state, utt_class, echo_derived)
             if confirmed_now or speaker_state != pending.get("state"):
-                # Other side restated the same action: that is mutual if they
-                # also confirm, or if both actually stated the action.
+                # Other side restated the same action: that is mutual only if
+                # both halves are real affirmations with owner and window.
                 if confirmed_now or (
                     speaker_state in ("SAID_BY_LEAD", "SAID_BY_FOUNDER")
                     and pending.get("state") in ("SAID_BY_LEAD", "SAID_BY_FOUNDER")
                     and speaker_state != pending.get("state")
                 ):
-                    _promote_mutual(pending)
+                    _promote_mutual(pending, confirming_class=utt_class,
+                                    confirming_echo=echo_derived)
             _absorb_answers(state, plan, text, source)
             _refresh_pending_questions(state)
             return state
@@ -763,11 +992,13 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
             origin=origin,
             span=text[:120],
         )
+        _record_class(item, speaker_state, utt_class, echo_derived)
         if confirmed_now:
             # Confirmation words on a first mention do not make it mutual.
             pass
         state["board"].append(item)
-        log.info("conversion observe reason=%s item_id=%s", speaker_state, item["id"])
+        log.info("conversion observe reason=%s item_id=%s class=%s",
+                 speaker_state, item["id"], utt_class)
         _absorb_answers(state, plan, text, source)
         _refresh_pending_questions(state)
         return state
@@ -775,16 +1006,20 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
     if confirmed_now:
         pending = _open_from_other(state, speaker_state)
         if pending:
-            _promote_mutual(pending)
+            # Merge what the confirming line carries BEFORE the gate runs:
+            # "combinado, você envia até sexta" supplies the owner and window
+            # the promotion rule requires.
             extra = _extract_commitment(text, source) or {}
             if extra:
                 _merge_fields(pending, extra)
-            # Confirmation can also carry window/owner ("combinado, você envia até sexta")
             win = _extract_window(text)
             if win and _str(pending.get("window")) in ("", UNKNOWN):
                 pending["window"] = win
             if re.search(r"\b(voce|vc)\b", low) and _str(pending.get("owner")) in ("", UNKNOWN):
                 pending["owner"] = "lead" if source == "mic" else "founder"
+            _record_class(pending, speaker_state, utt_class, echo_derived)
+            _promote_mutual(pending, confirming_class=utt_class,
+                            confirming_echo=echo_derived)
             pending["questions"] = missing_field_questions(pending)
         _absorb_answers(state, plan, text, source)
         _refresh_pending_questions(state)
@@ -868,6 +1103,9 @@ def operational_output(plan: dict | None, state: dict | None, *,
 
     if live:
         decisao = "alcançada"
+        # Intentional: "próximo passo confirmado" is the single next step the
+        # founder acts on, so it shows the most recent confirmed item. Every
+        # confirmed item is still listed in resumo_factual.
         confirmed = live[-1]
     elif revoked:
         decisao = "não alcançada"
@@ -904,12 +1142,18 @@ def operational_output(plan: dict | None, state: dict | None, *,
     resumo = "; ".join(facts) if facts else "nenhum fato comercial confirmado nesta sessão"
 
     insumos: list[str] = []
+    seen_insumos: set[str] = set()
     if confirmed and _str(confirmed.get("input")) not in ("", UNKNOWN):
         insumos.append(confirmed["input"])
+        seen_insumos.add(_fold(confirmed["input"]))
     if isinstance(plan, dict):
+        # Plan evidence is still TO BE confirmed. Label it so the founder does
+        # not read it as an input already in hand. Dedup folded: the confirmed
+        # input comes back accent-folded from _extract_doc_noun.
         for x in plan.get("evidence_to_confirm") or []:
-            if isinstance(x, str) and x.strip() and x.strip() not in insumos:
-                insumos.append(x.strip())
+            if isinstance(x, str) and x.strip() and _fold(x) not in seen_insumos:
+                seen_insumos.add(_fold(x))
+                insumos.append(f"{x.strip()} (a confirmar)")
 
     public_confirmed = _public_item(confirmed) if confirmed else None
     passo_txt = public_confirmed if public_confirmed else "nenhum"

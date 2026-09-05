@@ -22,6 +22,17 @@ log = logging.getLogger("meetcfg.meeting")
 
 IDLE_PRUNE_S = 3600
 
+#: The only two transcript channels. "mic" is Tiago, "system" is the lead.
+#: Anything else is not a third speaker: it is rejected at ingest so it can
+#: never satisfy the conversion state machine's "the other side spoke" test.
+SOURCE_MIC = "mic"
+SOURCE_SYSTEM = "system"
+VALID_SOURCES = (SOURCE_MIC, SOURCE_SYSTEM)
+
+
+def is_valid_source(source: object) -> bool:
+    return isinstance(source, str) and source in VALID_SOURCES
+
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
@@ -46,6 +57,11 @@ class Line:
     source: str   # "mic" (Tiago) | "system" (the lead)
     text: str
     at: float     # server wall-clock (epoch seconds)
+    # True when this line only exists because echo suppression retracted a
+    # near-duplicate from the other stream. One of the two copies is spurious
+    # and the heuristic cannot say which, so the survivor is not trustworthy
+    # as an independent utterance from the other party.
+    echo_derived: bool = False
 
     def speaker(self) -> str:
         return "Tiago" if self.source == "mic" else "Lead"
@@ -77,11 +93,17 @@ class MeetingSession:
           the system line and retract the mic line
 
         Returns (action, new_line_id, retract_line_id) where action is one of
-        "accept" | "suppress" | "accept_retract".
+        "accept" | "suppress" | "accept_retract" | "reject".
         """
         self.last_activity = time.time()
+        if not is_valid_source(source):
+            # Not a known channel: never store it, never let it act as a
+            # distinct speaker in the next-step board.
+            log.warning("line rejected: unknown source %r", source)
+            return ("reject", None, None)
         now = time.time()
         retract_id: int | None = None
+        echo_derived = False
 
         if settings.echo_suppress:
             match = self._find_recent_match(source, text, now)
@@ -92,10 +114,15 @@ class MeetingSession:
                 # source == "system": the earlier mic line was the echo
                 self.lines.remove(match)
                 retract_id = match.id
+                # The surviving system line is a copy of speech that already
+                # arrived on the mic stream. Whoever really spoke it, it is
+                # not a second, independent party agreeing.
+                echo_derived = True
                 log.info("echo retracted (mic line %d was dup of new system line): %.60s",
                          match.id, match.text)
 
-        line = Line(id=self._next_id, source=source, text=text, at=now)
+        line = Line(id=self._next_id, source=source, text=text, at=now,
+                    echo_derived=echo_derived)
         self._next_id += 1
         self.lines.append(line)
         self.refresh_conversion()

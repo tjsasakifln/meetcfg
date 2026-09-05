@@ -14,6 +14,7 @@
     "advancement_criterion": "sair com data de retorno; sem data permanece pergunta"
   },
   "lines": [
-    {"source": "system", "text": "Me retorna depois, ainda sem data."}
+    {"source": "system", "text": "Me retorna depois, ainda sem data."},
+    {"source": "mic", "text": "Combinado."}
   ]
 }

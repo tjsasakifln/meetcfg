@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -100,7 +101,17 @@ def _session_for(ws: WebSocket) -> meeting.MeetingSession:
 @app.websocket("/ws/audio")
 async def ws_audio(ws: WebSocket) -> None:
     await ws.accept()
-    source = ws.query_params.get("source", "mic")
+    source = ws.query_params.get("source", meeting.SOURCE_MIC)
+    if not meeting.is_valid_source(source):
+        # An unrecognised channel must not open a stream: downstream it would
+        # look like a third speaker and could confirm a next step by itself.
+        log.warning("ws refused: unknown source=%r", source)
+        await ws.send_text(json.dumps({
+            "type": "error", "reason": "UNKNOWN_SOURCE",
+            "allowed": list(meeting.VALID_SOURCES),
+        }))
+        await ws.close(code=1008)
+        return
     session = _session_for(ws)
     st = StreamingTranscriber(source=source)
     work: asyncio.Queue[object] = asyncio.Queue()
@@ -120,7 +131,7 @@ async def ws_audio(ws: WebSocket) -> None:
             if not text:
                 continue
             action, line_id, retract_id = session.ingest(source, text)
-            if action == "suppress":
+            if action in ("suppress", "reject"):
                 continue
             payload = {
                 "type": "transcript", "source": source, "text": text, "id": line_id,
@@ -402,7 +413,9 @@ def meeting_mod_get(meeting_id: str):
 
 class InjectLine(BaseModel):
     meeting: str = "test"
-    source: str = "system"   # "system" = the lead, "mic" = Tiago
+    # "system" = the lead, "mic" = Tiago. Closed enum: an unknown channel is
+    # not a third speaker and must never take part in mutual confirmation.
+    source: Literal["mic", "system"] = "system"
     text: str
 
 
@@ -415,6 +428,12 @@ async def api_inject(line: InjectLine) -> dict:
     """
     session = _session_for_id(line.meeting)
     action, line_id, retract_id = session.ingest(line.source, line.text)
+    if action == "reject":
+        return JSONResponse(
+            {"ok": False, "reason": "UNKNOWN_SOURCE", "action": action,
+             "allowed": list(meeting.VALID_SOURCES)},
+            status_code=422,
+        )
     if action != "suppress":
         await session.broadcast({
             "type": "transcript", "source": line.source, "text": line.text,
