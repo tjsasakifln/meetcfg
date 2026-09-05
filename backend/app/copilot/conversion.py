@@ -449,6 +449,21 @@ def missing_field_questions(item: dict) -> list[str]:
     return qs
 
 
+def _refresh_pending_questions(state: dict) -> None:
+    """Rebuild short questions from the live board. Filled fields drop."""
+    qs: list[str] = []
+    seen: set[str] = set()
+    for item in state.get("board") or []:
+        if not isinstance(item, dict) or item.get("state") == "REVOKED":
+            continue
+        item["questions"] = missing_field_questions(item)
+        for q in item["questions"]:
+            if q not in seen:
+                seen.add(q)
+                qs.append(q)
+    state["pending_questions"] = qs
+
+
 def _new_item(board_state: dict, **fields) -> dict:
     nid = int(board_state.get("_next_id") or 1)
     board_state["_next_id"] = nid + 1
@@ -568,8 +583,15 @@ def _extract_commitment(text: str, source: str) -> dict | None:
             input_ = "proposta"
         else:
             action = "enviar"
-    elif re.search(r"\b(inclu\w+|chamar)\b", low) or re.search(
-            r"\b(socio|diretor|decisor|engenheiro respons)\b", low):
+    elif (
+        re.search(r"\b(inclu\w+|chamar)\b", low)
+        and re.search(r"\b(socio|diretor|decisor|quem decide)\b", low)
+        and not _negated(low, "incluir")
+        and not _negated(low, "chamar")
+        and not _negated(low, "socio")
+        and not _negated(low, "diretor")
+        and not _negated(low, "decisor")
+    ):
         action = "incluir decisor"
         input_ = _extract_role(low)
     elif re.search(r"\b(retorn\w+|me liga|depois a gente)\b", low):
@@ -692,6 +714,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
     if _REVOKE_RE.search(low) or _REFUSAL_RE.search(low):
         _revoke_live(state, origin=origin, span=text)
         _absorb_answers(state, plan, text, source)
+        _refresh_pending_questions(state)
         return state
 
     if _EVAL_RE.search(low):
@@ -705,11 +728,9 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
             condition="avaliação não é aceite",
         )
         state["board"].append(item)
-        for q in item["questions"]:
-            if q not in state["pending_questions"]:
-                state["pending_questions"].append(q)
         log.info("conversion observe reason=EVALUATION_NOT_ACCEPTANCE item_id=%s", item["id"])
         _absorb_answers(state, plan, text, source)
+        _refresh_pending_questions(state)
         return state
 
     extracted = _extract_commitment(text, source)
@@ -729,6 +750,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
                 ):
                     _promote_mutual(pending)
             _absorb_answers(state, plan, text, source)
+            _refresh_pending_questions(state)
             return state
         item = _new_item(
             state,
@@ -745,11 +767,9 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
             # Confirmation words on a first mention do not make it mutual.
             pass
         state["board"].append(item)
-        for q in item["questions"]:
-            if q not in state["pending_questions"]:
-                state["pending_questions"].append(q)
         log.info("conversion observe reason=%s item_id=%s", speaker_state, item["id"])
         _absorb_answers(state, plan, text, source)
+        _refresh_pending_questions(state)
         return state
 
     if confirmed_now:
@@ -767,9 +787,11 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
                 pending["owner"] = "lead" if source == "mic" else "founder"
             pending["questions"] = missing_field_questions(pending)
         _absorb_answers(state, plan, text, source)
+        _refresh_pending_questions(state)
         return state
 
     _absorb_answers(state, plan, text, source)
+    _refresh_pending_questions(state)
     return state
 
 
@@ -795,6 +817,7 @@ def observe_suggestion(state: dict | None, advice: dict | None,
     )
     state["board"].append(item)
     log.info("conversion observe reason=SUGGESTED item_id=%s", item["id"])
+    _refresh_pending_questions(state)
     return state
 
 
@@ -834,16 +857,11 @@ def operational_output(plan: dict | None, state: dict | None, *,
     if not explicit:
         return {"ok": False, "reason": END_NOT_EXPLICIT}
     state = state if isinstance(state, dict) else empty_state()
+    _refresh_pending_questions(state)
     live = live_commitments(state)
     revoked = [i for i in state.get("board") or [] if i.get("state") == "REVOKED"]
     answered = list(state.get("answered_questions") or [])
     gaps = questions_to_ask(plan, answered)
-    for item in state.get("board") or []:
-        if item.get("state") == "MUTUALLY_CONFIRMED":
-            continue
-        for q in item.get("questions") or []:
-            if q not in gaps:
-                gaps.append(q)
     for q in state.get("pending_questions") or []:
         if q not in gaps:
             gaps.append(q)

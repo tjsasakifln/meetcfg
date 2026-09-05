@@ -30,10 +30,11 @@ from app.config import reload as reload_settings  # noqa: E402
 reload_settings()
 
 from app.copilot.conversion import (  # noqa: E402
-    CONVERSION_DISABLED, CRM_SIDE_EFFECT_KEYS, NEXT_STEP_STATES, SCHEMA_MEETING_PLAN,
+    CONVERSION_DISABLED, NEXT_STEP_STATES, SCHEMA_MEETING_PLAN,
     TIAGO_FIELDS, WORK_KINDS, apply_lines, crm_side_effect_keys,
     firm_price_deadline_blockers, live_commitments, meeting_plan_of,
     operational_output, parse_meeting_plan, questions_to_ask,
+    _extract_commitment,
 )
 from app.copilot.handraiser import (  # noqa: E402
     CONSUMER_DISABLED, PIN_HASH, SCHEMA_UNPINNED, consume, reset_store, session_id_for,
@@ -208,6 +209,24 @@ def test_scenarios():
     check("descoberta no mutual from diagnosis talk", live_commitments(state), [])
     check("descoberta decisão não alcançada", out["decisao"], "não alcançada")
     check("descoberta blocks firm price", bool(out["bloqueios_preco_prazo"]), True)
+    check("descoberta board has no invented incluir-decisor",
+          any("decisor" in (i.get("action") or "") for i in state.get("board") or []), False)
+    check("descoberta resumo does not claim incluir decisor",
+          "incluir decisor" in (out.get("resumo_factual") or ""), False)
+    disc_line = next(
+        (ln["text"] for ln in _fx["lines"] if ln.get("source") == "system"),
+        "",
+    )
+    check("descoberta lead line is the negation fixture",
+          "não o sócio" in disc_line, True)
+    check("shipped extract ignores negated sócio without incluir/chamar",
+          _extract_commitment(disc_line, "system"), None)
+    neg_state = apply_lines(_plan, [
+        {"source": "system", "text": "Não incluir o sócio nesta reunião."},
+    ])
+    check("negated incluir+sócio is not incluir-decisor",
+          any("decisor" in (i.get("action") or "") for i in neg_state.get("board") or []),
+          False)
 
     _fx, plan, state, out = _run_scenario("escopo")
     live = live_commitments(state)
@@ -231,6 +250,13 @@ def test_scenarios():
     check("objeção confirmed is escopo not price",
           "escopo" in (live[-1]["action"] if live else ""), True)
     check("objeção still blocks firm price", bool(firm_price_deadline_blockers(_plan, state)), True)
+    check("objeção window filled from speech",
+          "quarta" in (live[-1].get("window") or "").lower() if live else False, True)
+    date_q = "Qual a data ou janela desta ação?"
+    check("objeção lacunas do not re-ask filled window",
+          date_q in (out.get("lacunas") or []), False)
+    check("objeção pending does not re-ask filled window",
+          date_q in (state.get("pending_questions") or []), False)
 
     _fx, _plan, state, out = _run_scenario("envio_de_documento")
     live = live_commitments(state)
