@@ -327,6 +327,11 @@ def test_adversarial_confirmation():
 
     # --- S1: deferral language, including "before deciding with someone else"
     hedges = (
+        "Talvez eu envie os documentos amanhã.",
+        "Provavelmente eu envio os documentos amanhã.",
+        "Acho que consigo enviar os documentos amanhã.",
+        "Vou tentar enviar os documentos amanhã.",
+        "Se der, envio os documentos amanhã.",
         "Vou ver com a equipe antes de fechar o escopo.",
         "Preciso levar para o time.",
         "Vou alinhar internamente antes de decidir o escopo.",
