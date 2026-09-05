@@ -1,0 +1,20 @@
+{
+  "id": "envio_de_documento",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "ESCOPO",
+    "objective": "obter o memorial de cálculo para fechar o escopo",
+    "work_kind": "ANALISE_DOCUMENTAL",
+    "participant_roles": [{"name": "UNKNOWN", "role": "engenheiro da obra"}],
+    "unanswered_questions": ["Quais documentos técnicos já existem e podem ser compartilhados?"],
+    "answered_questions": [],
+    "evidence_to_confirm": ["memorial de cálculo"],
+    "scope_limits": ["análise documental não substitui inspeção/campo"],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com o documento combinado e a janela de envio"
+  },
+  "lines": [
+    {"source": "system", "text": "Posso enviar o memorial de cálculo até sexta-feira."},
+    {"source": "mic", "text": "Combinado, você envia o memorial até sexta."}
+  ]
+}

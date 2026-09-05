@@ -1,0 +1,20 @@
+{
+  "id": "recusa",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "PROPOSTA",
+    "objective": "registrar aceite ou recusa explícita",
+    "work_kind": "PROPOSTA",
+    "participant_roles": [{"name": "UNKNOWN", "role": "engenheiro da obra"}],
+    "unanswered_questions": [],
+    "answered_questions": [],
+    "evidence_to_confirm": [],
+    "scope_limits": ["não pressionar quem recusou"],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com aceite, recusa ou condição explícita"
+  },
+  "lines": [
+    {"source": "mic", "text": "Consigo mandar a proposta na segunda."},
+    {"source": "system", "text": "Não quero seguir com proposta agora."}
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "escopo",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "ESCOPO",
+    "objective": "fechar a fronteira do trabalho e os insumos",
+    "work_kind": "ESCOPO",
+    "participant_roles": [{"name": "UNKNOWN", "role": "engenheiro da obra"}],
+    "unanswered_questions": [
+      "Quais documentos técnicos já existem e podem ser compartilhados?"
+    ],
+    "answered_questions": ["Qual o papel de quem fala nesta conversa?"],
+    "evidence_to_confirm": ["memorial de cálculo"],
+    "scope_limits": ["escopo não é proposta dimensionada"],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com fronteira de escopo, insumos e critério para proposta"
+  },
+  "lines": [
+    {"source": "system", "text": "O escopo é só a laje do bloco B, não o restante do condomínio."},
+    {"source": "mic", "text": "Combinado, fechamos o escopo só na laje do bloco B."}
+  ]
+}
