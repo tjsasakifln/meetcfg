@@ -1,0 +1,20 @@
+{
+  "id": "proposta",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "PROPOSTA",
+    "objective": "sair com aceite, recusa ou condição explícita da proposta",
+    "work_kind": "PROPOSTA",
+    "participant_roles": [{"name": "UNKNOWN", "role": "engenheiro da obra"}],
+    "unanswered_questions": ["Quem decide o próximo passo?"],
+    "answered_questions": [],
+    "evidence_to_confirm": ["capacidade da equipe na janela pedida"],
+    "scope_limits": ["sem escopo, insumos, capacidade e atribuição não há preço firme"],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com aceite, recusa ou condição explícita — 'vou avaliar' não basta"
+  },
+  "lines": [
+    {"source": "mic", "text": "Consigo mandar a proposta na segunda se o escopo estiver fechado."},
+    {"source": "system", "text": "Vou avaliar."}
+  ]
+}

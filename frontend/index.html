@@ -16,6 +16,7 @@
       <button id="startBtn">Iniciar</button>
       <button id="stopBtn" disabled>Parar</button>
       <button id="adviseBtn" class="ghost" disabled>Orientar agora</button>
+      <button id="endMeetingBtn" class="ghost" type="button">Encerrar reunião</button>
       <button id="refreshConversasBtn" class="ghost" type="button">Atualizar conversas</button>
       <span id="hrFetchState" class="hr-fetch-state"></span>
       <span id="copilotStatus" class="copilot-status"></span>
@@ -38,8 +39,22 @@
     </section>
     <aside id="leadContext" class="lead-context hidden" aria-live="polite">
       <h2>Contexto desta conversa</h2>
+      <p class="lead-context-legend">resumo · núcleo e problema · o que já se sabe · o que é UNKNOWN · perguntas sugeridas · limites/conflito · próximo estado · evidência técnica disponível</p>
       <dl id="leadContextFields"></dl>
+      <details id="leadContextDetail" class="lead-context-detail hidden">
+        <summary>detalhe técnico</summary>
+        <dl id="leadContextIds"></dl>
+      </details>
       <p id="leadContextReason" class="lead-context-reason hidden"></p>
+    </aside>
+    <aside id="conversionPanel" class="conversion-panel">
+      <h2>Plano da reunião e próximo passo</h2>
+      <p class="conversion-legend">estágio · objetivo · tipo de trabalho · critério de avanço · quadro de próximo passo · encerrar só no botão</p>
+      <dl id="conversionPlanFields"></dl>
+      <h3>Próximo passo</h3>
+      <ul id="conversionBoard" class="conversion-board"></ul>
+      <p id="conversionQuestions" class="conversion-questions"></p>
+      <div id="conversionEnd" class="conversion-end hidden"></div>
     </aside>
     <section class="panel">
       <h2>Transcrição</h2>

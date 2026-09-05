@@ -1,0 +1,20 @@
+{
+  "id": "retorno_sem_data",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "DESCOBERTA",
+    "objective": "marcar um retorno com data",
+    "work_kind": "DIAGNOSTICO",
+    "participant_roles": [{"name": "UNKNOWN", "role": "UNKNOWN"}],
+    "unanswered_questions": ["Qual a urgência real desta decisão?"],
+    "answered_questions": [],
+    "evidence_to_confirm": [],
+    "scope_limits": [],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com data de retorno; sem data permanece pergunta"
+  },
+  "lines": [
+    {"source": "system", "text": "Me retorna depois, ainda sem data."},
+    {"source": "mic", "text": "Combinado."}
+  ]
+}

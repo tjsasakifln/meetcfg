@@ -1,0 +1,22 @@
+{
+  "id": "objecao",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "OBJECAO",
+    "objective": "nomear a objeção de preço e o próximo passo que a desbloqueia",
+    "work_kind": "ESCOPO",
+    "participant_roles": [{"name": "UNKNOWN", "role": "engenheiro da obra"}],
+    "unanswered_questions": [],
+    "answered_questions": [],
+    "evidence_to_confirm": [],
+    "scope_limits": ["não fechar preço firme nesta objeção"],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com a objeção nomeada e o próximo passo que a desbloqueia, ou recusa visível"
+  },
+  "lines": [
+    {"source": "system", "text": "O preço está alto para a gente agora."},
+    {"source": "mic", "text": "Entendo. O próximo passo é revisar o escopo, não fechar preço firme."},
+    {"source": "system", "text": "Tá, vamos revisar o escopo na quarta."},
+    {"source": "mic", "text": "Combinado, revisamos o escopo na quarta."}
+  ]
+}

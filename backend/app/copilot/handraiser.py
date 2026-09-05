@@ -40,6 +40,52 @@ log = logging.getLogger("meetcfg.handraiser")
 SCHEMA_ITEM = "CONFENGE_HANDRAISER_ITEM/1.0"
 SCHEMA_ADMISSION = "net-new-inbound-handraiser-admission.v1"
 
+# Campaign 14 pin. Runtime requires this exact context schema + hash.
+# Fixtures are test-only; they are never a fallback when the pin is missing.
+SCHEMA_CONTEXT = "MEETCFG_HANDRAISER_CONTEXT/1.0.0-draft.20260904"
+PINNED_CONTRACTS = {
+    "admission": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
+    "catalog": "CONFENGE_OFFER_CATALOG/2.0.0-draft.20260904",
+    "context": SCHEMA_CONTEXT,
+    "intake": "CONFENGE_WEB_INTAKE/2.0.0-draft.20260904",
+    "state": "CONFENGE_HANDRAISER_STATE/1.0.0-draft.20260904",
+    "taxonomy": "CONFENGE_CORPORATE_TAXONOMY/1.0.0-draft.20260904",
+}
+PIN_HASH = hashlib.sha256(
+    json.dumps(PINNED_CONTRACTS, sort_keys=True, separators=(",", ":")).encode("utf-8")
+).hexdigest()
+
+SOURCE_LANE = "CONFENGE_WEB"
+OFFER_CANDIDATE = "private_project_technical_readiness_assessment"
+PRIVATE_ASSET = "private_project_technical_readiness_v1"
+NUCLEI = (
+    "expert_evidence_assistance",
+    "property_valuation",
+    "building_engineering_documentation",
+    "occupational_safety",
+    "public_works_b2g",
+)
+NUCLEUS_LABELS = {
+    "expert_evidence_assistance": "Assistência em prova pericial",
+    "property_valuation": "Avaliação patrimonial",
+    "building_engineering_documentation": "Documentação de engenharia predial",
+    "occupational_safety": "Segurança do trabalho",
+    "public_works_b2g": "Obras públicas (B2G)",
+}
+_ALLOWED_SOURCE_LANES = {
+    "CONFENGE_WEB",
+    "confenge_web",
+    "NET_NEW_INBOUND",
+    "net_new_inbound",
+    "INBOUND_LIVE",
+}
+_CONFLICT_CLEARED = {"CLEAR", "RESTRICTED"}
+_RESTRICTION_CLASS_RE = re.compile(r"^[A-Z0-9_]{1,64}$")
+CRM_SIDE_EFFECT_KEYS = (
+    "lead", "lead_id", "pipeline", "queue", "cadence",
+    "offer_truth", "opportunity", "account",
+)
+
 # Warmbly origin/main producer fingerprint. Re-validate before merge; #47 is
 # still open and may land a different item/export shape.
 # SHA cc11a9ab22d54e08ceb24efc9b555e0ac9c25b23
@@ -88,6 +134,13 @@ PRODUCER_UNREACHABLE = "PRODUCER_UNREACHABLE"
 PRODUCER_TIMEOUT = "PRODUCER_TIMEOUT"
 PRODUCER_UNAUTHORIZED = "PRODUCER_UNAUTHORIZED"
 PRODUCER_ERROR = "PRODUCER_ERROR"
+SCHEMA_UNPINNED = "SCHEMA_UNPINNED"
+SCHEMA_PIN_MISMATCH = "SCHEMA_PIN_MISMATCH"
+MISSING_CONFLICT_CLEARANCE = "MISSING_CONFLICT_CLEARANCE"
+NUCLEUS_UNKNOWN = "NUCLEUS_UNKNOWN"
+SOURCE_LANE_MISMATCH = "SOURCE_LANE_MISMATCH"
+OFFER_CANDIDATE_MISMATCH = "OFFER_CANDIDATE_MISMATCH"
+OUTBOUND_NOT_ELIGIBLE = "OUTBOUND_NOT_ELIGIBLE"
 
 MAX_PAYLOAD_BYTES = 256_000
 SESSION_PREFIX = "hr:"
@@ -127,7 +180,7 @@ def _unwrap(payload):
         inner = payload["data"]
         # A dossier/item that happens to have a "data" field must not be unwrapped
         # if it already looks like a consume/dossier document.
-        if payload.get("schema") in (SCHEMA_ID, SCHEMA_ITEM, SCHEMA_EXPORT, SCHEMA_ADMISSION):
+        if payload.get("schema") in (SCHEMA_ID, SCHEMA_ITEM, SCHEMA_EXPORT, SCHEMA_ADMISSION, SCHEMA_CONTEXT):
             return payload
         return inner
     return payload
@@ -147,7 +200,11 @@ def classify_payload(payload) -> str:
         return "collection"
     if schema == SCHEMA_ITEM:
         return "wrap"
+    if schema == SCHEMA_CONTEXT:
+        return "wrap"
     if schema == SCHEMA_ADMISSION or schema == "net-new-inbound-handraiser-admission.v1":
+        return "admission"
+    if schema == PINNED_CONTRACTS["admission"]:
         return "admission"
     if schema == SCHEMA_ID:
         return "dossier"
@@ -214,6 +271,183 @@ def map_channel(lane: str) -> str:
         return lane
     mapped = _LANE_TO_CHANNEL.get(lane) or _LANE_TO_CHANNEL.get(lane.lower(), "")
     return mapped if mapped in CHANNELS else "OTHER"
+
+
+def normalize_source_lane(raw: str) -> str:
+    s = _str(raw)
+    if s in ("CONFENGE_WEB", "confenge_web", "confenge_web_intent"):
+        return SOURCE_LANE
+    if s in ("NET_NEW_INBOUND", "net_new_inbound", "INBOUND_LIVE"):
+        return SOURCE_LANE
+    return s
+
+
+def _contracts_of(doc: dict) -> dict:
+    raw = doc.get("contracts")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def pin_reason(doc: dict) -> str:
+    """Fail closed unless the envelope pins the campaign-14 contracts + hash."""
+    if not isinstance(doc, dict):
+        return SCHEMA_UNPINNED
+    schema = _str(doc.get("schema"))
+    if schema != SCHEMA_CONTEXT:
+        return SCHEMA_UNPINNED
+    hash_val = _str(doc.get("schema_hash") or doc.get("pin_hash"))
+    if not hash_val:
+        return SCHEMA_UNPINNED
+    if hash_val != PIN_HASH:
+        return SCHEMA_PIN_MISMATCH
+    contracts = _contracts_of(doc)
+    if not contracts:
+        return SCHEMA_UNPINNED
+    for key, expected in PINNED_CONTRACTS.items():
+        got = _str(contracts.get(key))
+        if not got:
+            return SCHEMA_UNPINNED
+        if got != expected:
+            return SCHEMA_PIN_MISMATCH
+    return ""
+
+
+def _conflict_blob(*srcs) -> dict | None:
+    for src in srcs:
+        if isinstance(src, dict) and isinstance(src.get("conflict"), dict):
+            return src["conflict"]
+    return None
+
+
+def conflict_reason(*srcs) -> str:
+    blob = _conflict_blob(*srcs)
+    if not isinstance(blob, dict):
+        return MISSING_CONFLICT_CLEARANCE
+    status = _str(blob.get("status") or blob.get("clearance")).upper()
+    if status not in _CONFLICT_CLEARED:
+        return MISSING_CONFLICT_CLEARANCE
+    return ""
+
+
+def source_lane_reason(*srcs) -> str:
+    for src in srcs:
+        if not isinstance(src, dict):
+            continue
+        for key in ("source", "lane", "origin"):
+            raw = _str(src.get(key))
+            if raw:
+                if raw not in _ALLOWED_SOURCE_LANES:
+                    return SOURCE_LANE_MISMATCH
+                return ""
+        channel = _str(src.get("acquisition_channel") or src.get("acquisition_lane"))
+        if channel:
+            if channel not in _ALLOWED_SOURCE_LANES and channel not in ("confenge_web",):
+                return SOURCE_LANE_MISMATCH
+            return ""
+    return SOURCE_LANE_MISMATCH
+
+
+def nucleus_id_of(*srcs) -> str:
+    for src in srcs:
+        if not isinstance(src, dict):
+            continue
+        for key in ("nucleus_id", "nucleus"):
+            v = _str(src.get(key))
+            if v:
+                return v
+        tax = src.get("taxonomy") if isinstance(src.get("taxonomy"), dict) else None
+        if tax:
+            v = _str(tax.get("nucleus_id") or tax.get("nucleus"))
+            if v:
+                return v
+    return ""
+
+
+def nucleus_reason(*srcs) -> str:
+    nid = nucleus_id_of(*srcs)
+    if nid not in NUCLEI:
+        return NUCLEUS_UNKNOWN
+    return ""
+
+
+def eligibility_reason(*srcs) -> str:
+    for src in srcs:
+        if not isinstance(src, dict):
+            continue
+        if src.get("outbound_eligible") is True or src.get("auto_send") is True:
+            return OUTBOUND_NOT_ELIGIBLE
+    return ""
+
+
+def offer_candidate_of(*srcs) -> str:
+    for src in srcs:
+        if not isinstance(src, dict):
+            continue
+        offer = src.get("offer") if isinstance(src.get("offer"), dict) else {}
+        v = _str(src.get("offer_candidate") or offer.get("candidate") or offer.get("current"))
+        if v:
+            return v
+    return ""
+
+
+def offer_reason(*srcs) -> str:
+    v = offer_candidate_of(*srcs)
+    if not v:
+        return ""
+    if v != OFFER_CANDIDATE:
+        return OFFER_CANDIDATE_MISMATCH
+    return ""
+
+
+def _restriction_class(conflict: dict | None) -> str:
+    """Class token only. Free-text process/employee/document detail is dropped."""
+    if not isinstance(conflict, dict):
+        return UNKNOWN
+    raw = _str(conflict.get("restriction") or conflict.get("restriction_class"))
+    token = raw.upper().replace("-", "_").replace(" ", "_")
+    if _RESTRICTION_CLASS_RE.match(token):
+        return token
+    status = _str(conflict.get("status")).upper()
+    return status if status in _CONFLICT_CLEARED else UNKNOWN
+
+
+def suggested_questions(unknown: list[str], handoff: dict) -> list[str]:
+    """Questions from permitted gaps only. Never invent a commercial claim."""
+    qs: list[str] = []
+    seen: set[str] = set()
+
+    def add(q: str) -> None:
+        if q and q not in seen:
+            seen.add(q)
+            qs.append(q)
+
+    unknown_l = [u.lower() for u in unknown if isinstance(u, str)]
+    mapping = (
+        ("cnpj", "Qual o CNPJ da organização, se for público e puder informar?"),
+        ("cargo", "Qual o papel de quem fala nesta conversa?"),
+        ("decisor", "Quem decide o próximo passo?"),
+        ("prazo", "Qual o prazo desta decisão?"),
+        ("prova", "Há evidência técnica já disponível para esta conversa?"),
+        ("empresa", "Qual o nome da organização, se puder informar?"),
+    )
+    for needle, question in mapping:
+        if any(needle in u for u in unknown_l):
+            add(question)
+    if _str(handoff.get("decision_role")) in ("", UNKNOWN):
+        add("Quem decide nesta conversa?")
+    if _str(handoff.get("document_availability_class")) in ("", UNKNOWN, "unknown"):
+        add("Quais documentos técnicos já existem e podem ser compartilhados?")
+    if _str(handoff.get("urgency")) in ("", UNKNOWN):
+        add("Qual a urgência real desta decisão?")
+    if _str(handoff.get("city_service_area_class")) in ("", UNKNOWN):
+        add("Em qual município ou área de serviço isso se aplica?")
+    return qs[:6]
+
+
+def crm_side_effect_keys(obj: dict | None) -> list[str]:
+    """Keys that would mean Meetcfg created a CRM record. Producer refs are not these."""
+    if not isinstance(obj, dict):
+        return []
+    return [k for k in CRM_SIDE_EFFECT_KEYS if k in obj]
 
 
 def _sanitize_cnpj(raw) -> tuple[str | None, str]:
@@ -295,19 +529,24 @@ def map_to_dossier(
         or _str(admission.get("idempotency_key"))
     )
 
-    lane = (
+    lane_raw = (
         _str(extras.get("lane"))
+        or _str(extras.get("source"))
         or _str(src.get("lane"))
+        or _str(src.get("source"))
         or _str(src.get("acquisition_channel"))
         or _str(admission.get("acquisition_lane"))
         or _str(admission.get("origin"))
     )
     origin = (
         _str(extras.get("origin"))
+        or _str(extras.get("source"))
         or _str(admission.get("origin"))
         or _str(src.get("origin"))
-        or lane
+        or lane_raw
     )
+    lane = normalize_source_lane(lane_raw) or normalize_source_lane(origin) or SOURCE_LANE
+    origin = normalize_source_lane(origin) or lane
     channel = map_channel(lane)
 
     company_src = src.get("company") if isinstance(src.get("company"), dict) else {}
@@ -317,10 +556,14 @@ def map_to_dossier(
         or _str(extras.get("company_name"))
     ) or UNKNOWN
     cnpj, leftover_ref = _sanitize_cnpj(company_src.get("cnpj"))
+    identity_blob = extras.get("identity") if isinstance(extras.get("identity"), dict) else {}
+    if not identity_blob and isinstance(src.get("identity"), dict):
+        identity_blob = src["identity"]
     identity_ref = (
         _str(company_src.get("identity_ref"))
         or _str(src.get("company_ref"))
         or leftover_ref
+        or _str(identity_blob.get("inbound_ref"))
         or _str(admission.get("subject_ref"))
         or _str(admission.get("account_ref"))
     )
@@ -389,9 +632,9 @@ def map_to_dossier(
         or UNKNOWN
     )
     receipt = (
-        _str(extras.get("receipt"))
+        _str(admission.get("receipt_id"))
+        or _str(extras.get("receipt"))
         or _str(src.get("receipt"))
-        or _str(admission.get("receipt_id"))
         or ""
     )
     # Producer decision only. Native Warmbly items have none — do not invent ACCEPTED.
@@ -429,7 +672,42 @@ def map_to_dossier(
     touchpoints = src.get("touchpoints")
     mapped_tps = _map_touchpoints(touchpoints) if isinstance(touchpoints, list) else []
 
-    why_now = _str(facts.get("why_now")) or _str(intent_kind)
+    situation = extras.get("situation") if isinstance(extras.get("situation"), dict) else {}
+    if not situation and isinstance(src.get("situation"), dict):
+        situation = src["situation"]
+    why_now = (
+        _str(facts.get("why_now"))
+        or _str(situation.get("why_now"))
+        or _str(intent_kind)
+    )
+    permitted = extras.get("permitted") if isinstance(extras.get("permitted"), dict) else {}
+    if not permitted and isinstance(src.get("permitted"), dict):
+        permitted = src["permitted"]
+    permitted_facts = permitted.get("facts") if isinstance(permitted.get("facts"), list) else []
+    permitted_facts = [x for x in permitted_facts if isinstance(x, str) and x.strip()]
+    if permitted_facts and not public_facts:
+        public_facts = list(permitted_facts)
+    if _str(permitted.get("provenance")):
+        provenance = _str(permitted.get("provenance"))
+    owner_links = permitted.get("owner_links") if isinstance(permitted.get("owner_links"), list) else extras.get("owner_links")
+    if not isinstance(owner_links, list):
+        owner_links = []
+    owner_links = [x for x in owner_links if isinstance(x, str) and x.strip().startswith("https://")]
+
+    nucleus = nucleus_id_of(extras, src, admission)
+    offer_candidate = offer_candidate_of(extras, src, admission) or UNKNOWN
+    conflict = _conflict_blob(extras, src, admission)
+    decision_role = (
+        _str(identity_blob.get("decision_role"))
+        or _str(extras.get("decision_role"))
+        or UNKNOWN
+    )
+    qualification_state = (
+        _str(extras.get("qualification_state"))
+        or _str(src.get("qualification_state"))
+        or outcome
+        or UNKNOWN
+    )
 
     dossier: dict[str, Any] = {
         "schema": SCHEMA_ID,
@@ -485,7 +763,40 @@ def map_to_dossier(
     if src.get("price_band") or (isinstance(offer_src, dict) and offer_src.get("price_band")):
         dossier["offer"]["price_band"] = _str(src.get("price_band") or offer_src.get("price_band")) or None
 
+    dossier["nucleus_id"] = nucleus or UNKNOWN
+    dossier["offer_candidate"] = offer_candidate
+    dossier["private_asset"] = _str(extras.get("private_asset") or src.get("private_asset")) or PRIVATE_ASSET
+    dossier["decision_role"] = decision_role
+    dossier["urgency"] = _str(situation.get("urgency")) or UNKNOWN
+    dossier["city_service_area_class"] = _str(situation.get("city_service_area_class")) or UNKNOWN
+    dossier["desired_decision"] = _str(situation.get("desired_decision")) or UNKNOWN
+    dossier["document_availability_class"] = _str(situation.get("document_availability_class")) or UNKNOWN
+    dossier["problema"] = _str(situation.get("problema")) or UNKNOWN
+    dossier["conflict_status"] = _str((conflict or {}).get("status")).upper() or UNKNOWN
+    dossier["conflict_restriction"] = _restriction_class(conflict)
+    dossier["qualification_state"] = qualification_state
+    dossier["owner_links"] = owner_links
+    dossier["permitted_facts"] = permitted_facts or public_facts
+    dossier["schema_context"] = SCHEMA_CONTEXT
+    dossier["schema_hash"] = _str(extras.get("schema_hash") or src.get("schema_hash")) or PIN_HASH
+    dossier["source"] = SOURCE_LANE
+    dossier["outbound_eligible"] = False
+    dossier["auto_send"] = False
+    if dossier.get("lane") not in (SOURCE_LANE, UNKNOWN):
+        dossier["lane"] = normalize_source_lane(dossier.get("lane") or "") or SOURCE_LANE
     dossier["unknown"] = _missing_commercial(dossier)
+    extra_unknown = []
+    if decision_role in ("", UNKNOWN):
+        extra_unknown.append("papel de quem decide")
+    if dossier["document_availability_class"] in ("", UNKNOWN, "unknown"):
+        extra_unknown.append("disponibilidade documental")
+    if dossier["urgency"] in ("", UNKNOWN):
+        extra_unknown.append("urgência")
+    seen_u = list(dossier["unknown"])
+    for item in extra_unknown:
+        if item not in seen_u:
+            seen_u.append(item)
+    dossier["unknown"] = seen_u
     return dossier
 
 
@@ -557,6 +868,34 @@ def render_conversation_layer(dossier: dict) -> dict:
         or UNKNOWN
     )
 
+    nucleus_id = _str(dossier.get("nucleus_id"))
+    nucleo = NUCLEUS_LABELS.get(nucleus_id, UNKNOWN)
+    problema = _str(dossier.get("problema")) or UNKNOWN
+    nucleo_problema = nucleo if problema in ("", UNKNOWN) else f"{nucleo} — {problema}"
+    permitted = [s for s in (dossier.get("permitted_facts") or facts) if isinstance(s, str) and s.strip()]
+    evidencia = [s for s in (dossier.get("evidence") or []) if isinstance(s, str) and s.strip()]
+    restriction = _str(dossier.get("conflict_restriction")) or UNKNOWN
+    conflict_status = _str(dossier.get("conflict_status")) or UNKNOWN
+    if conflict_status == "CLEAR" and restriction in ("", "NONE", UNKNOWN):
+        limites_conflito = "sem restrição declarada pelo produtor"
+    else:
+        limites_conflito = f"{conflict_status} · {restriction}"
+    handoff = {
+        "decision_role": _str(dossier.get("decision_role")) or UNKNOWN,
+        "document_availability_class": _str(dossier.get("document_availability_class")) or UNKNOWN,
+        "urgency": _str(dossier.get("urgency")) or UNKNOWN,
+        "city_service_area_class": _str(dossier.get("city_service_area_class")) or UNKNOWN,
+    }
+    perguntas = suggested_questions(unknown if isinstance(unknown, list) else [], handoff)
+    resumo = nucleo
+    if why and why != UNKNOWN:
+        resumo = f"{nucleo}: {why}" if nucleo != UNKNOWN else why
+    offer_candidate = _str(dossier.get("offer_candidate")) or UNKNOWN
+    if offer_candidate not in (UNKNOWN, OFFER_CANDIDATE, ""):
+        offer_candidate = UNKNOWN  # never render an unpinned commercial offer as truth
+    if offer_candidate == OFFER_CANDIDATE and opps == []:
+        opps = [OFFER_CANDIDATE]
+
     return {
         "empresa": _str(company.get("name")) or UNKNOWN,
         "por_que_chegou_agora": why,
@@ -572,8 +911,45 @@ def render_conversation_layer(dossier: dict) -> dict:
         "status": DECISION_ACCEPTED,
         "situacao": _str(dossier.get("situacao")) or UNKNOWN,
         "handraiser_id": _str(dossier.get("handraiser_id")),
-        "lane": _str(dossier.get("lane")) or _str(dossier.get("acquisition_channel")),
+        "lane": SOURCE_LANE,
+        "source": SOURCE_LANE,
         "identity_ref": _str(dossier.get("identity_ref")) or _str(company.get("identity_ref")),
+        "resumo": resumo or UNKNOWN,
+        "nucleo": nucleo,
+        "nucleo_id": nucleus_id or UNKNOWN,
+        "problema": problema,
+        "nucleo_problema": nucleo_problema,
+        "o_que_ja_se_sabe": permitted or facts or [UNKNOWN],
+        "o_que_e_unknown": unknown,
+        "perguntas_sugeridas": perguntas,
+        "limites_conflito": limites_conflito,
+        "proximo_estado": next_state,
+        "evidencia_tecnica": evidencia or [UNKNOWN],
+        "offer_candidate": offer_candidate if offer_candidate else UNKNOWN,
+        "decision_role": handoff["decision_role"],
+        "urgency": handoff["urgency"],
+        "city_service_area_class": handoff["city_service_area_class"],
+        "desired_decision": _str(dossier.get("desired_decision")) or UNKNOWN,
+        "document_availability_class": handoff["document_availability_class"],
+        "conflict_status": conflict_status,
+        "qualification_state": _str(dossier.get("qualification_state")) or UNKNOWN,
+        "owner_links": dossier.get("owner_links") if isinstance(dossier.get("owner_links"), list) else [],
+        "receipt": _str(dossier.get("receipt")) or UNKNOWN,
+        "as_of": freshness,
+        "provenance": _str(dossier.get("provenance")) or UNKNOWN,
+        "outbound_eligible": False,
+        "auto_send": False,
+        "schema": SCHEMA_CONTEXT,
+        "schema_hash": _str(dossier.get("schema_hash")) or PIN_HASH,
+        "detalhe": {
+            "handraiser_id": _str(dossier.get("handraiser_id")),
+            "nucleus_id": nucleus_id or UNKNOWN,
+            "schema": SCHEMA_CONTEXT,
+            "schema_hash": _str(dossier.get("schema_hash")) or PIN_HASH,
+            "receipt": _str(dossier.get("receipt")),
+            "source": SOURCE_LANE,
+            "lane": SOURCE_LANE,
+        },
     }
 
 
@@ -683,6 +1059,13 @@ class ConsumeResult:
             body["canal"] = self.conversation.get("canal")
             body["freshness"] = self.conversation.get("freshness")
             body["status"] = self.conversation.get("status")
+            body["resumo"] = self.conversation.get("resumo")
+            body["nucleo"] = self.conversation.get("nucleo")
+            body["nucleo_id"] = self.conversation.get("nucleo_id")
+            body["nucleo_problema"] = self.conversation.get("nucleo_problema")
+            body["proximo_estado"] = self.conversation.get("proximo_estado")
+            body["source"] = self.conversation.get("source")
+            body["schema"] = self.conversation.get("schema")
         return body
 
 
@@ -794,8 +1177,14 @@ def consume(
         if inner is None and admission is None:
             return _fail(MALFORMED)
         item = inner if inner is not None else {}
-        for k in ("handraiser_id", "origin", "lane", "receipt", "inbound_only",
-                  "source_as_of", "freshness", "situacao"):
+        for k in (
+            "handraiser_id", "origin", "lane", "source", "receipt", "inbound_only",
+            "source_as_of", "freshness", "situacao", "nucleus_id", "nucleus",
+            "offer_candidate", "private_asset", "conflict", "identity",
+            "situation", "permitted", "auto_send", "outbound_eligible",
+            "qualification_state", "schema_hash", "contracts", "owner_links",
+            "decision_role", "decision", "meeting_plan", "commercial_stage",
+        ):
             if k in doc:
                 extras[k] = doc[k]
     elif kind == "admission":
@@ -813,6 +1202,31 @@ def consume(
     if closed == DECISION_UNKNOWN:
         return _fail(UNKNOWN_OUTCOME)
     if closed is not None and closed != DECISION_ACCEPTED:
+        return _fail(UNKNOWN_OUTCOME)
+
+    pin = pin_reason(doc)
+    if pin:
+        log.info("handraiser consume failed reason=%s schema=%s", pin, _str(doc.get("schema")))
+        return _fail(pin)
+    lane_fail = source_lane_reason(doc, extras, admission or {}, item or {})
+    if lane_fail:
+        return _fail(lane_fail)
+    nuc_fail = nucleus_reason(doc, extras, admission or {}, item or {})
+    if nuc_fail:
+        return _fail(nuc_fail)
+    conf_fail = conflict_reason(doc, extras, admission or {}, item or {})
+    if conf_fail:
+        return _fail(conf_fail)
+    elig_fail = eligibility_reason(doc, extras, admission or {}, item or {})
+    if elig_fail:
+        return _fail(elig_fail)
+    offer_fail = offer_reason(doc, extras, admission or {}, item or {})
+    if offer_fail:
+        return _fail(offer_fail)
+    if closed is None:
+        # Pinned runtime still requires an explicit ACCEPTED. Native unpinned
+        # already failed SCHEMA_UNPINNED; a pinned envelope without decision
+        # is not an implicit accept.
         return _fail(UNKNOWN_OUTCOME)
 
     if kind == "dossier":
@@ -872,6 +1286,13 @@ def consume(
     hid = _str(dossier.get("handraiser_id"))
     receipt = _receipt_of(dossier, doc)
     dossier["receipt"] = receipt
+    from .conversion import attach_meeting_plan
+    plan_src = extras if isinstance(extras, dict) else {}
+    if isinstance(doc, dict) and doc.get("meeting_plan") is not None:
+        plan_src = {**plan_src, "meeting_plan": doc["meeting_plan"]}
+    if isinstance(item, dict) and item.get("meeting_plan") is not None:
+        plan_src = {**plan_src, "meeting_plan": item["meeting_plan"]}
+    attach_meeting_plan(dossier, plan_src)
     conversation = render_conversation_layer(dossier)
     inbound_only = dossier.get("inbound_only") if "inbound_only" in dossier else None
 
@@ -933,6 +1354,8 @@ def _bind(record: AcceptedRecord) -> None:
     session.handraiser_id = record.handraiser_id
     session.handraiser_context = record.dossier
     session.handraiser_version = record.version
+    plan = record.dossier.get("meeting_plan") if isinstance(record.dossier, dict) else None
+    session.meeting_plan = plan if isinstance(plan, dict) else None
 
 
 def context_for_session(session, *, refresh: bool = False, enabled: bool = True) -> dict | None:
@@ -1106,8 +1529,11 @@ def list_conversations(store: ReceiptStore | None = None) -> list[dict]:
         rows.append((rec.accepted_at, {
             "handraiser_id": rec.handraiser_id,
             "session_id": rec.session_id,
+            "titulo": conv.get("resumo") or conv.get("empresa") or UNKNOWN,
+            "resumo": conv.get("resumo") or UNKNOWN,
+            "nucleo": conv.get("nucleo") or UNKNOWN,
             "empresa": conv.get("empresa") or UNKNOWN,
-            "canal": conv.get("canal") or conv.get("lane") or UNKNOWN,
+            "canal": conv.get("canal") or conv.get("lane") or SOURCE_LANE,
             "intencao": conv.get("intencao") or UNKNOWN,
             "inbound_only": rec.inbound_only,
             "freshness": conv.get("freshness") or UNKNOWN,

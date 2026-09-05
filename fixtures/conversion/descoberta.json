@@ -1,0 +1,23 @@
+{
+  "id": "descoberta",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "DESCOBERTA",
+    "objective": "entender o problema e o papel de quem fala",
+    "work_kind": "DIAGNOSTICO",
+    "participant_roles": [{"name": "UNKNOWN", "role": "UNKNOWN"}],
+    "unanswered_questions": [
+      "Qual o papel de quem fala nesta conversa?",
+      "Há evidência técnica já disponível para esta conversa?"
+    ],
+    "answered_questions": [],
+    "evidence_to_confirm": ["existência de laudo prévio"],
+    "scope_limits": ["hipótese de diagnóstico não é conclusão técnica"],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com o problema, o papel do interlocutor e o próximo passo de diagnóstico ou análise documental"
+  },
+  "lines": [
+    {"source": "system", "text": "Sou o engenheiro da obra, não o sócio. O problema é trinca na laje."},
+    {"source": "mic", "text": "Entendi. Então o próximo passo é diagnóstico, não proposta."}
+  ]
+}

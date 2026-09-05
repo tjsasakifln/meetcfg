@@ -1,0 +1,20 @@
+{
+  "id": "inclusao_de_decisor",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "DESCOBERTA",
+    "objective": "trazer quem decide para a próxima conversa",
+    "work_kind": "DIAGNOSTICO",
+    "participant_roles": [{"name": "UNKNOWN", "role": "UNKNOWN"}],
+    "unanswered_questions": ["Quem decide o próximo passo?"],
+    "answered_questions": [],
+    "evidence_to_confirm": [],
+    "scope_limits": [],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com o decisor nomeado e a janela da próxima conversa"
+  },
+  "lines": [
+    {"source": "system", "text": "Preciso incluir o sócio na próxima conversa."},
+    {"source": "mic", "text": "Combinado, incluímos o sócio na quinta."}
+  ]
+}

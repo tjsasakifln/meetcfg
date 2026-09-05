@@ -1,0 +1,22 @@
+{
+  "id": "copilot_suggested",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "PROPOSTA",
+    "objective": "não converter sugestão em compromisso",
+    "work_kind": "PROPOSTA",
+    "participant_roles": [{"name": "UNKNOWN", "role": "UNKNOWN"}],
+    "unanswered_questions": [],
+    "answered_questions": [],
+    "evidence_to_confirm": [],
+    "scope_limits": [],
+    "conflict_limits": [],
+    "advancement_criterion": "sugestão do copiloto não é compromisso"
+  },
+  "lines": [
+    {"source": "system", "text": "Estamos conversando sobre a obra."}
+  ],
+  "suggestions": [
+    {"faca": "Peça o aceite da proposta hoje", "diga": "Combinado, fechamos a proposta?"}
+  ]
+}

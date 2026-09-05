@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -73,6 +74,7 @@ async def api_config() -> dict:
     return {
         "user_name": settings.user_name,
         "handraiser_consumer_enabled": bool(settings.handraiser_consumer_enabled),
+        "conversion_enabled": bool(settings.conversion_enabled),
         "warmbly_configured": handraiser.producer_configured(),
     }
 
@@ -87,6 +89,8 @@ def _session_for_id(meeting_id: str) -> meeting.MeetingSession:
             session.handraiser_id = rec.handraiser_id
             session.handraiser_context = rec.dossier
             session.handraiser_version = rec.version
+            plan = rec.dossier.get("meeting_plan") if isinstance(rec.dossier, dict) else None
+            session.meeting_plan = plan if isinstance(plan, dict) else None
     return session
 
 
@@ -97,7 +101,17 @@ def _session_for(ws: WebSocket) -> meeting.MeetingSession:
 @app.websocket("/ws/audio")
 async def ws_audio(ws: WebSocket) -> None:
     await ws.accept()
-    source = ws.query_params.get("source", "mic")
+    source = ws.query_params.get("source", meeting.SOURCE_MIC)
+    if not meeting.is_valid_source(source):
+        # An unrecognised channel must not open a stream: downstream it would
+        # look like a third speaker and could confirm a next step by itself.
+        log.warning("ws refused: unknown source=%r", source)
+        await ws.send_text(json.dumps({
+            "type": "error", "reason": "UNKNOWN_SOURCE",
+            "allowed": list(meeting.VALID_SOURCES),
+        }))
+        await ws.close(code=1008)
+        return
     session = _session_for(ws)
     st = StreamingTranscriber(source=source)
     work: asyncio.Queue[object] = asyncio.Queue()
@@ -117,7 +131,7 @@ async def ws_audio(ws: WebSocket) -> None:
             if not text:
                 continue
             action, line_id, retract_id = session.ingest(source, text)
-            if action == "suppress":
+            if action in ("suppress", "reject"):
                 continue
             payload = {
                 "type": "transcript", "source": source, "text": text, "id": line_id,
@@ -213,6 +227,21 @@ def _conversation_payload(session: meeting.MeetingSession) -> dict | None:
         "freshness": conv.get("freshness"),
         "status": conv.get("status"),
         "identity_ref": conv.get("identity_ref"),
+        "resumo": conv.get("resumo"),
+        "nucleo": conv.get("nucleo"),
+        "nucleo_id": conv.get("nucleo_id"),
+        "nucleo_problema": conv.get("nucleo_problema"),
+        "proximo_estado": conv.get("proximo_estado"),
+        "source": conv.get("source"),
+        "schema": conv.get("schema"),
+        "meeting_plan": (
+            session.meeting_plan
+            if isinstance(getattr(session, "meeting_plan", None), dict)
+            else (dossier.get("meeting_plan") if isinstance(dossier, dict) else None)
+        ),
+        "meeting_plan_reason": (
+            dossier.get("meeting_plan_reason") if isinstance(dossier, dict) else None
+        ),
     }
 
 
@@ -306,6 +335,12 @@ async def api_handraiser_get(handraiser_id: str):
         "freshness": conv.get("freshness"),
         "status": conv.get("status"),
         "inbound_only": rec.inbound_only,
+        "resumo": conv.get("resumo"),
+        "nucleo": conv.get("nucleo"),
+        "nucleo_id": conv.get("nucleo_id"),
+        "proximo_estado": conv.get("proximo_estado"),
+        "source": conv.get("source"),
+        "schema": conv.get("schema"),
     }
 
 
@@ -322,6 +357,8 @@ async def api_handraiser_select(body: SelectHandraiser) -> dict:
     session.handraiser_id = rec.handraiser_id
     session.handraiser_context = rec.dossier
     session.handraiser_version = rec.version
+    plan = rec.dossier.get("meeting_plan") if isinstance(rec.dossier, dict) else None
+    session.meeting_plan = plan if isinstance(plan, dict) else None
     conv = rec.conversation
     log.info("handraiser selected handraiser_id=%s session_id=%s", rec.handraiser_id, rec.session_id)
     return {
@@ -338,6 +375,12 @@ async def api_handraiser_select(body: SelectHandraiser) -> dict:
         "freshness": conv.get("freshness"),
         "status": conv.get("status"),
         "inbound_only": rec.inbound_only,
+        "resumo": conv.get("resumo"),
+        "nucleo": conv.get("nucleo"),
+        "nucleo_id": conv.get("nucleo_id"),
+        "proximo_estado": conv.get("proximo_estado"),
+        "source": conv.get("source"),
+        "schema": conv.get("schema"),
     }
 
 
@@ -355,6 +398,8 @@ async def api_session_context(meeting: str = "default") -> dict:
         session.handraiser_id = rec.handraiser_id
         session.handraiser_context = rec.dossier
         session.handraiser_version = rec.version
+        plan = rec.dossier.get("meeting_plan") if isinstance(rec.dossier, dict) else None
+        session.meeting_plan = plan if isinstance(plan, dict) else None
     payload = _conversation_payload(session)
     if payload is None:
         return JSONResponse({"ok": False, "reason": handraiser.NOT_FOUND, "session_id": session.meeting_id},
@@ -368,7 +413,9 @@ def meeting_mod_get(meeting_id: str):
 
 class InjectLine(BaseModel):
     meeting: str = "test"
-    source: str = "system"   # "system" = the lead, "mic" = Tiago
+    # "system" = the lead, "mic" = Tiago. Closed enum: an unknown channel is
+    # not a third speaker and must never take part in mutual confirmation.
+    source: Literal["mic", "system"] = "system"
     text: str
 
 
@@ -381,11 +428,24 @@ async def api_inject(line: InjectLine) -> dict:
     """
     session = _session_for_id(line.meeting)
     action, line_id, retract_id = session.ingest(line.source, line.text)
+    if action == "reject":
+        return JSONResponse(
+            {"ok": False, "reason": "UNKNOWN_SOURCE", "action": action,
+             "allowed": list(meeting.VALID_SOURCES)},
+            status_code=422,
+        )
     if action != "suppress":
         await session.broadcast({
             "type": "transcript", "source": line.source, "text": line.text,
             "id": line_id, "t0": 0, "t1": 0,
         })
+        conv = getattr(session, "conversion_state", None)
+        if isinstance(conv, dict):
+            await session.broadcast({
+                "type": "conversion_update",
+                "board": conv.get("board") or [],
+                "pending_questions": conv.get("pending_questions") or [],
+            })
     return {"action": action, "id": line_id, "retract": retract_id}
 
 
@@ -404,3 +464,81 @@ async def api_postcall(req: PostCallRequest) -> dict:
     from .copilot.postcall import generate_post_call_report
     session = _session_for_id(req.meeting)
     return await generate_post_call_report(session)
+
+
+class MeetingEndRequest(BaseModel):
+    meeting: str = "default"
+
+
+@app.post("/api/meeting/end")
+async def api_meeting_end(req: MeetingEndRequest) -> dict:
+    """Operational snapshot for Tiago — only on explicit action, never automatic.
+
+    No calendar, no SMTP, no final proposal, no stage write, no raw transcript.
+    """
+    from .copilot.conversion import crm_side_effect_keys, meeting_plan_of, operational_output
+    session = meeting_mod_get(req.meeting)
+    if session is None and req.meeting.startswith(handraiser.SESSION_PREFIX):
+        session = _session_for_id(req.meeting)
+    if session is None:
+        return JSONResponse(
+            {"ok": False, "reason": handraiser.NOT_FOUND, "session_id": None},
+            status_code=404,
+        )
+    plan = getattr(session, "meeting_plan", None)
+    if not isinstance(plan, dict):
+        plan, _reason = meeting_plan_of(getattr(session, "handraiser_context", None) or {})
+    state = getattr(session, "conversion_state", None)
+    if state is None:
+        session.refresh_conversion()
+        state = session.conversion_state
+    body = operational_output(plan, state, explicit=True)
+    body["session_id"] = session.meeting_id
+    body["handraiser_id"] = getattr(session, "handraiser_id", None)
+    if crm_side_effect_keys(body):
+        log.info("conversion output refused reason=CRM_SIDE_EFFECT session_id=%s",
+                 session.meeting_id)
+        return JSONResponse(
+            {"ok": False, "reason": "CRM_SIDE_EFFECT", "session_id": session.meeting_id},
+            status_code=400,
+        )
+    log.info(
+        "conversion end reason=EXPLICIT session_id=%s decisao=%s live=%s",
+        session.meeting_id, body.get("decisao"),
+        "yes" if isinstance(body.get("proximo_passo_confirmado"), dict) else "no",
+    )
+    return body
+
+
+@app.get("/api/session/conversion")
+async def api_session_conversion(meeting: str = "default") -> dict:
+    """In-memory meeting plan + next-step board. Readable after conversion rollback."""
+    from .copilot.conversion import meeting_plan_of, questions_to_ask
+    session = meeting_mod_get(meeting)
+    if session is None and meeting.startswith(handraiser.SESSION_PREFIX):
+        session = _session_for_id(meeting)
+    if session is None:
+        return JSONResponse(
+            {"ok": False, "reason": handraiser.NOT_FOUND, "session_id": None},
+            status_code=404,
+        )
+    plan = getattr(session, "meeting_plan", None)
+    plan_reason = ""
+    if not isinstance(plan, dict):
+        plan, plan_reason = meeting_plan_of(getattr(session, "handraiser_context", None) or {})
+        if isinstance(getattr(session, "handraiser_context", None), dict):
+            plan_reason = plan_reason or session.handraiser_context.get("meeting_plan_reason") or ""
+    state = getattr(session, "conversion_state", None) or {}
+    answered = list(state.get("answered_questions") or []) if isinstance(state, dict) else []
+    return {
+        "ok": True,
+        "reason": plan_reason or (state.get("reason") if isinstance(state, dict) else "") or "",
+        "session_id": session.meeting_id,
+        "enabled": bool(settings.conversion_enabled),
+        "meeting_plan": plan,
+        "board": (state.get("board") if isinstance(state, dict) else []) or [],
+        "pending_questions": (state.get("pending_questions") if isinstance(state, dict) else []) or [],
+        "answered_questions": answered,
+        "questions_to_ask": questions_to_ask(plan, answered),
+        "commercial_stage": (plan or {}).get("commercial_stage") if isinstance(plan, dict) else None,
+    }

@@ -16,16 +16,16 @@
   "auto_send": false,
   "offer_candidate": "private_project_technical_readiness_assessment",
   "private_asset": "private_project_technical_readiness_v1",
-  "qualification_state": "UNKNOWN",
+  "qualification_state": "ACCEPTED",
   "conflict": {
     "status": "CLEAR",
     "restriction": "NONE"
   },
-  "handraiser_id": "44444444-4444-4444-4444-444444444444",
+  "handraiser_id": "20202020-2020-2020-2020-202020202020",
   "origin": "CONFENGE_WEB",
-  "nucleus_id": "property_valuation",
-  "decision": "UNKNOWN",
-  "receipt": "rcpt_unknown_001",
+  "nucleus_id": "not_a_confenge_nucleus",
+  "decision": "ACCEPTED",
+  "receipt": "rcpt_bad_nucleus_001",
   "identity": {
     "inbound_ref": "patrimonio-sul",
     "decision_role": "UNKNOWN"
@@ -45,7 +45,7 @@
     ],
     "provenance": "warmbly_accepted_item",
     "owner_links": [
-      "https://owner.example.invalid/handraiser/44444444-4444-4444-4444-444444444444"
+      "https://owner.example.invalid/handraiser/20202020-2020-2020-2020-202020202020"
     ]
   },
   "freshness": {
@@ -54,12 +54,12 @@
   "admission": {
     "schema_version": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
     "policy_id": "NET_NEW_INBOUND_HANDRAISER/1.0.0-draft.20260904",
-    "decision": "UNKNOWN",
+    "decision": "ACCEPTED",
     "reason_codes": [
-      "FRESHNESS_UNKNOWN"
+      "ADMISSION_GATES_SATISFIED"
     ],
-    "receipt_id": "rcpt_unknown_001",
-    "logical_admission_id": "nihr_44444444444444444444444444444444",
+    "receipt_id": "rcpt_bad_nucleus_001",
+    "logical_admission_id": "nihr_20202020202020202020202020202020",
     "origin": "CONFENGE_WEB",
     "acquisition_lane": "NET_NEW_INBOUND",
     "intent_kind": "REQUEST_DEEP_DIVE",
@@ -71,7 +71,7 @@
     "evaluated_at": "2026-09-03T12:00:00Z"
   },
   "item": {
-    "action_id": "44444444-4444-4444-4444-444444444444",
+    "action_id": "20202020-2020-2020-2020-202020202020",
     "acquisition_channel": "confenge_web",
     "company_ref": "patrimonio-sul",
     "company_name": "Patrimonio Sul Consultoria Ltda",

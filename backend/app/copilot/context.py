@@ -355,6 +355,14 @@ def render_for_prompt(ctx: dict) -> str:
     _section(parts, "O que NÃO sabemos (permanece ausente; não preencha):",
              _strs(ctx.get("unknown")))
 
+    from .conversion import meeting_plan_of, render_plan_for_prompt
+    plan, plan_reason = meeting_plan_of(ctx)
+    if plan is not None or plan_reason:
+        parts.append("Plano de reunião (mesma versão do briefing; estágio não se altera sozinho):")
+        parts.append(render_plan_for_prompt(
+            plan, answered=_strs(ctx.get("answered_questions")), reason=plan_reason,
+        ))
+
     offer = ctx.get("offer") or {}
     if _is_str(offer.get("current")):
         parts.append(f"Oferta em jogo: {offer['current'].strip()}")

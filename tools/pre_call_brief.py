@@ -23,6 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from app.copilot.context import (  # noqa: E402
     CHANNEL_LABELS, engagement_type, load_sales_context_v1, never_assert_list,
 )
+from app.copilot.conversion import (  # noqa: E402
+    WORK_KIND_LABELS, meeting_plan_of, questions_to_ask,
+)
 
 # The loader logs its rejection reason; here that reason is printed to stderr by
 # main(), so silence the logger to avoid saying it twice.
@@ -92,7 +95,41 @@ def render_brief(ctx: dict) -> str:
         fortes.append("(sem terceiro fato levantado — pergunte em vez de afirmar)")
     section("3 FATOS FORTES", fortes)
 
-    section("2 PERGUNTAS", _questions(ctx))
+    plan, plan_reason = meeting_plan_of(ctx)
+    if plan_reason:
+        section("PLANO DE REUNIÃO", [
+            f"indisponível: {plan_reason}",
+            "modo limitado/manual — não invente estágio, preço, prazo nem aceite",
+        ])
+        section("2 PERGUNTAS", _questions(ctx))
+    elif plan is None:
+        section("PLANO DE REUNIÃO", [
+            "ausente — modo limitado/manual",
+            "pergunte objetivo e critério de avanço; não altere estágio comercial",
+        ])
+        section("2 PERGUNTAS", _questions(ctx))
+    else:
+        roles = []
+        for r in plan.get("participant_roles") or []:
+            if isinstance(r, dict):
+                roles.append(f"{r.get('name') or 'UNKNOWN'} ({r.get('role') or 'UNKNOWN'})")
+        kind = plan.get("work_kind") or "UNKNOWN"
+        section("ESTÁGIO E OBJETIVO", [
+            f"estágio (autoridade): {plan.get('commercial_stage') or 'UNKNOWN'}",
+            f"objetivo único: {plan.get('objective') or 'UNKNOWN'}",
+        ])
+        section("TIPO DE TRABALHO", [
+            WORK_KIND_LABELS.get(kind, kind),
+            "diagnóstico ≠ conclusão técnica; análise documental ≠ inspeção/campo; "
+            "escopo ≠ proposta dimensionada",
+        ])
+        section("CRITÉRIO DE AVANÇO", [plan.get("advancement_criterion") or "UNKNOWN"])
+        qs = questions_to_ask(plan)
+        section("PERGUNTAS AINDA NÃO RESPONDIDAS",
+                qs[:4] or ["nenhuma pergunta em aberto no plano"])
+        if plan.get("limited"):
+            section("MODO", ["limitado/manual — contexto incompleto"])
+        section("2 PERGUNTAS", (qs[:2] if qs else _questions(ctx)))
 
     limits = never_assert_list(ctx)
     section("1 LIMITE QUE NÃO PODE SER AFIRMADO",

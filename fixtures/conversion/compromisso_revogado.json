@@ -1,0 +1,21 @@
+{
+  "id": "compromisso_revogado",
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "ESCOPO",
+    "objective": "obter o PDF combinado",
+    "work_kind": "ANALISE_DOCUMENTAL",
+    "participant_roles": [{"name": "UNKNOWN", "role": "engenheiro da obra"}],
+    "unanswered_questions": [],
+    "answered_questions": [],
+    "evidence_to_confirm": ["PDF do memorial"],
+    "scope_limits": [],
+    "conflict_limits": [],
+    "advancement_criterion": "sair com o envio confirmado ou a revogação visível"
+  },
+  "lines": [
+    {"source": "system", "text": "Te envio o PDF amanhã."},
+    {"source": "mic", "text": "Combinado, você envia o PDF amanhã."},
+    {"source": "system", "text": "Na verdade não posso enviar, cancela isso."}
+  ]
+}

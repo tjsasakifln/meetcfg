@@ -114,11 +114,54 @@ main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .lead-context dd.unknown { color: var(--muted); font-style: italic; }
 .lead-context-reason { color: #e5616b; font-size: 13px; margin: 8px 0 0; }
 .lead-context-reason.hidden { display: none; }
+.lead-context-legend { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.lead-context-detail { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.lead-context-detail.hidden { display: none; }
+.lead-context-detail summary { cursor: pointer; color: var(--muted); }
+.lead-context-detail dl { margin-top: 8px; }
 @media (max-width: 640px) {
   .lead-context { max-height: none; }
   .lead-context dl { grid-template-columns: 1fr; gap: 2px 0; }
   .lead-context dt { white-space: normal; margin-top: 8px; }
   .lead-context dt:first-child { margin-top: 0; }
+}
+
+.conversion-panel {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 18px 12px;
+  flex: 0 0 auto;
+  max-height: min(40vh, 20rem);
+  overflow-y: auto;
+}
+.conversion-panel h2, .conversion-panel h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 0 0 8px;
+}
+.conversion-panel h3 { margin-top: 10px; }
+.conversion-legend { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.conversion-panel dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(13rem, 22%) 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.conversion-panel dt { color: var(--muted); font-weight: 600; }
+.conversion-panel dd { margin: 0; }
+.conversion-board { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.conversion-board li { margin: 0 0 6px; }
+.conversion-board .state { font-size: 11px; letter-spacing: .04em; color: var(--accent); }
+.conversion-board .state.suggested { color: var(--muted); }
+.conversion-board .state.revoked { color: #e5616b; text-decoration: line-through; }
+.conversion-questions { font-size: 13px; color: var(--other); margin: 8px 0 0; }
+.conversion-end { margin-top: 10px; font-size: 13px; }
+.conversion-end.hidden { display: none; }
+.conversion-end dt { color: var(--muted); font-weight: 600; }
+.conversion-end dd { margin: 0 0 6px; }
+@media (max-width: 640px) {
+  .conversion-panel { max-height: none; }
+  .conversion-panel dl { grid-template-columns: 1fr; }
 }
 
 .panel { background: var(--panel); padding: 12px 18px; overflow: hidden; display: flex; flex-direction: column; flex: 1 1 38%; min-height: 0; }

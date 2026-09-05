@@ -21,17 +21,17 @@
     "status": "CLEAR",
     "restriction": "NONE"
   },
-  "handraiser_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "handraiser_id": "11111111-1111-1111-1111-111111111111",
   "origin": "CONFENGE_WEB",
   "nucleus_id": "public_works_b2g",
   "decision": "ACCEPTED",
-  "receipt": "rcpt_vertice_other_001",
+  "receipt": "rcpt_vertice_webinar_001",
   "identity": {
-    "inbound_ref": "subj:web:vertice-obras",
+    "inbound_ref": "vertice-obras",
     "decision_role": "UNKNOWN"
   },
   "situation": {
-    "why_now": "segunda inscrição no webinar, outro formulário",
+    "why_now": "levantou a mão no webinar e pediu a chamada",
     "problema": "quer fechar o escopo do primeiro ciclo em obra pública",
     "urgency": "this_week",
     "city_service_area_class": "municipio_sp",
@@ -45,7 +45,7 @@
     ],
     "provenance": "warmbly_accepted_item",
     "owner_links": [
-      "https://owner.example.invalid/handraiser/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+      "https://owner.example.invalid/handraiser/11111111-1111-1111-1111-111111111111"
     ]
   },
   "freshness": {
@@ -58,35 +58,36 @@
     "reason_codes": [
       "ADMISSION_GATES_SATISFIED"
     ],
-    "receipt_id": "rcpt_vertice_other_001",
-    "logical_admission_id": "nihr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "receipt_id": "rcpt_vertice_webinar_001",
+    "logical_admission_id": "nihr_11111111111111111111111111111111",
     "origin": "CONFENGE_WEB",
     "acquisition_lane": "NET_NEW_INBOUND",
     "intent_kind": "REQUEST_DEEP_DIVE",
-    "subject_ref": "subj:web:vertice-obras",
+    "subject_ref": "vertice-obras",
     "inbound_only": true,
     "outbound_eligible": false,
     "auto_send": false,
     "identity_authorization": "INBOUND_ONLY",
-    "evaluated_at": "2026-09-03T12:05:00Z"
+    "evaluated_at": "2026-09-03T12:00:00Z"
   },
   "item": {
-    "action_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "action_id": "11111111-1111-1111-1111-111111111111",
     "acquisition_channel": "confenge_web",
     "company_ref": "vertice-obras",
     "company_name": "Vertice Obras e Infraestrutura Ltda",
     "intent_reason": "REQUEST_DEEP_DIVE",
-    "reply_reason": "segunda mão levantada no mesmo webinar",
+    "reply_reason": "pediu a chamada no formulário do webinar",
     "conversation_started": true,
     "facts": {
-      "why_now": "segunda inscrição no webinar, outro formulário",
+      "why_now": "levantou a mão no webinar e pediu a chamada",
       "factual_hook": "Executa contrato municipal de drenagem em vigência, informação do portal de transparência",
       "evidence_ids": [
         "portal-transparencia",
         "webinar-2026-07-15"
       ],
       "stated_limits": [
-        "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública"
+        "Não afirme valor nem margem do contrato municipal atual — só a vigência é pública",
+        "Não trate B2G como habilitação jurídica automática"
       ]
     },
     "touchpoints": [
@@ -98,9 +99,38 @@
         "sent_at": "2026-07-15T18:00:00Z"
       }
     ],
-    "next_action_type": "confirmar o interlocutor da segunda inscrição",
+    "next_action_type": "fechar o escopo do primeiro ciclo",
     "state": "call_needed",
-    "created_at": "2026-09-03T12:04:00Z",
+    "created_at": "2026-09-03T11:00:00Z",
     "account_id": "22222222-2222-2222-2222-222222222222"
+  },
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "ESCOPO",
+    "objective": "fechar o escopo do primeiro ciclo e o insumo documental",
+    "work_kind": "ESCOPO",
+    "participant_roles": [
+      {
+        "name": "UNKNOWN",
+        "role": "UNKNOWN"
+      }
+    ],
+    "unanswered_questions": [
+      "Qual o papel de quem fala nesta conversa?",
+      "Quais documentos técnicos já existem e podem ser compartilhados?",
+      "Quem decide o próximo passo?"
+    ],
+    "answered_questions": [],
+    "evidence_to_confirm": [
+      "memorial de cálculo",
+      "vigência do contrato municipal"
+    ],
+    "scope_limits": [
+      "não orçar sem insumos e atribuição"
+    ],
+    "conflict_limits": [
+      "CLEAR"
+    ],
+    "advancement_criterion": "sair com fronteira de escopo, insumos e critério para proposta"
   }
 }
