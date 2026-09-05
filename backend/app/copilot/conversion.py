@@ -122,7 +122,8 @@ _DELIB_TARGET = (
 )
 _EVAL_RE = re.compile(
     # 1) literal hedges already covered, plus close equivalents
-    r"\b(?:vou avaliar|vou pensar|vou analisar|vou estudar|vou verificar|"
+    r"\b(?:talvez|provavelmente|possivelmente|acho que|creio que|vou tentar|"
+    r"tentarei|se der|vou avaliar|vou pensar|vou analisar|vou estudar|vou verificar|"
     r"vou dar uma olhada|vamos nos falando|vamos se falando|preciso avaliar|"
     r"preciso pensar|preciso analisar|preciso estudar|preciso de um tempo|"
     r"vou ver internamente|vou verificar internamente|vou checar internamente|"
