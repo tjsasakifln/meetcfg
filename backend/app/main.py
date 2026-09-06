@@ -21,6 +21,13 @@ from pydantic import BaseModel
 
 from . import meeting
 from .config import settings
+from .conversation import (
+    AdapterContractError,
+    GOOGLE_MEET_ADAPTER,
+    PCM16kFrame,
+    TranscriptEvent,
+    role_for_legacy_source,
+)
 from .copilot.engine import CopilotEngine
 from .copilot import handraiser
 from .transcription.whisper_engine import StreamingTranscriber, get_model, transcribe_watched
@@ -98,24 +105,40 @@ def _session_for(ws: WebSocket) -> meeting.MeetingSession:
     return _session_for_id(ws.query_params.get("meeting", "default"))
 
 
+async def _broadcast_conversion_update(session: meeting.MeetingSession) -> None:
+    state = getattr(session, "conversion_state", None)
+    if isinstance(state, dict):
+        await session.broadcast({
+            "type": "conversion_update",
+            "board": state.get("board") or [],
+            "pending_questions": state.get("pending_questions") or [],
+        })
+
+
 @app.websocket("/ws/audio")
 async def ws_audio(ws: WebSocket) -> None:
     await ws.accept()
     source = ws.query_params.get("source", meeting.SOURCE_MIC)
-    if not meeting.is_valid_source(source):
+    meeting_id = ws.query_params.get("meeting", "default")
+    try:
+        binding = GOOGLE_MEET_ADAPTER.bind(meeting_id, source)
+    except AdapterContractError as exc:
         # An unrecognised channel must not open a stream: downstream it would
         # look like a third speaker and could confirm a next step by itself.
         log.warning("ws refused: unknown source=%r", source)
         await ws.send_text(json.dumps({
-            "type": "error", "reason": "UNKNOWN_SOURCE",
-            "allowed": list(meeting.VALID_SOURCES),
+            "type": "error", "reason": exc.reason,
+            "allowed": list(exc.allowed or meeting.VALID_SOURCES),
         }))
         await ws.close(code=1008)
         return
-    session = _session_for(ws)
-    st = StreamingTranscriber(source=source)
+    session = _session_for_id(meeting_id)
+    st = StreamingTranscriber(source=binding.physical_source)
     work: asyncio.Queue[object] = asyncio.Queue()
-    log.info("ws connected source=%s", source)
+    log.info(
+        "ws connected adapter=%s channel=%s role=%s source=%s",
+        binding.adapter_id, binding.conversation_channel, binding.role, source,
+    )
 
     async def transcriber_worker() -> None:
         """Pull completed utterances and transcribe them off the receive loop."""
@@ -130,12 +153,20 @@ async def ws_audio(ws: WebSocket) -> None:
                 continue
             if not text:
                 continue
-            action, line_id, retract_id = session.ingest(source, text)
-            if action in ("suppress", "reject"):
+            result = session.ingest_event(TranscriptEvent(binding=binding, text=text))
+            if result.action == "suppress":
+                # A late duplicate can retroactively mark the surviving
+                # counterparty line as echo-derived and rebuild the board.
+                await _broadcast_conversion_update(session)
+                continue
+            if result.action in ("reject", "replay"):
                 continue
             payload = {
-                "type": "transcript", "source": source, "text": text, "id": line_id,
+                "type": "transcript", "source": source, "text": text,
+                "id": result.line_id,
                 "t0": round(utt.t0, 2), "t1": round(utt.t1, 2),
+                "role": binding.role,
+                "conversation_channel": binding.conversation_channel,
             }
             # The UI reads transcripts off the copilot socket; this echo back on
             # the audio socket is what lets tools/feed_wav.py see them without a
@@ -147,16 +178,32 @@ async def ws_audio(ws: WebSocket) -> None:
             except Exception:  # noqa: BLE001 - client already disconnected
                 pass
             await session.broadcast(payload)
-            if retract_id is not None:
-                await session.broadcast({"type": "retract", "id": retract_id})
+            if result.retract_line_id is not None:
+                await session.broadcast({"type": "retract", "id": result.retract_line_id})
 
+    input_reason = session.attach_input(binding)
+    if input_reason:
+        await ws.send_text(json.dumps({"type": "error", "reason": input_reason}))
+        await ws.close(code=1008)
+        return
     worker = asyncio.create_task(transcriber_worker())
-    await ws.send_text(json.dumps({"type": "status", "source": source, "msg": "connected"}))
 
     try:
+        await ws.send_text(json.dumps({
+            "type": "status", "source": source, "msg": "connected",
+            "role": binding.role,
+            "conversation_channel": binding.conversation_channel,
+            "source_health": binding.source_health,
+        }))
         while True:
             data = await ws.receive_bytes()
-            for utt in st.add_pcm(data):
+            frame = PCM16kFrame(binding=binding, pcm=data)
+            pcm_reason = frame.validate()
+            if pcm_reason:
+                await ws.send_text(json.dumps({"type": "error", "reason": pcm_reason}))
+                await ws.close(code=1008)
+                return
+            for utt in st.add_pcm(frame.pcm):
                 work.put_nowait(utt)
     except WebSocketDisconnect:
         log.info("ws disconnected source=%s", source)
@@ -166,9 +213,12 @@ async def ws_audio(ws: WebSocket) -> None:
             work.put_nowait(final)
         await work.put(None)   # let the worker drain, then stop it
         try:
-            await asyncio.wait_for(worker, timeout=30)
-        except asyncio.TimeoutError:
-            worker.cancel()
+            try:
+                await asyncio.wait_for(worker, timeout=30)
+            except asyncio.TimeoutError:
+                worker.cancel()
+        finally:
+            session.detach_input(binding)
 
 
 @app.websocket("/ws/copilot")
@@ -438,14 +488,10 @@ async def api_inject(line: InjectLine) -> dict:
         await session.broadcast({
             "type": "transcript", "source": line.source, "text": line.text,
             "id": line_id, "t0": 0, "t1": 0,
+            "role": role_for_legacy_source(line.source),
+            "conversation_channel": GOOGLE_MEET_ADAPTER.conversation_channel,
         })
-        conv = getattr(session, "conversion_state", None)
-        if isinstance(conv, dict):
-            await session.broadcast({
-                "type": "conversion_update",
-                "board": conv.get("board") or [],
-                "pending_questions": conv.get("pending_questions") or [],
-            })
+    await _broadcast_conversion_update(session)
     return {"action": action, "id": line_id, "retract": retract_id}
 
 
@@ -488,10 +534,8 @@ async def api_meeting_end(req: MeetingEndRequest) -> dict:
     plan = getattr(session, "meeting_plan", None)
     if not isinstance(plan, dict):
         plan, _reason = meeting_plan_of(getattr(session, "handraiser_context", None) or {})
-    state = getattr(session, "conversion_state", None)
-    if state is None:
-        session.refresh_conversion()
-        state = session.conversion_state
+    # Rebuild also settles live counterparty lines whose echo grace elapsed.
+    state = session.refresh_conversion()
     body = operational_output(plan, state, explicit=True)
     body["session_id"] = session.meeting_id
     body["handraiser_id"] = getattr(session, "handraiser_id", None)
@@ -528,7 +572,8 @@ async def api_session_conversion(meeting: str = "default") -> dict:
         plan, plan_reason = meeting_plan_of(getattr(session, "handraiser_context", None) or {})
         if isinstance(getattr(session, "handraiser_context", None), dict):
             plan_reason = plan_reason or session.handraiser_context.get("meeting_plan_reason") or ""
-    state = getattr(session, "conversion_state", None) or {}
+    # Rebuild also settles live counterparty lines whose echo grace elapsed.
+    state = session.refresh_conversion() or {}
     answered = list(state.get("answered_questions") or []) if isinstance(state, dict) else []
     return {
         "ok": True,

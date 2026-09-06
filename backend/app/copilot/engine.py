@@ -9,8 +9,8 @@ Linford). What was kept is the trigger discipline, which is the hard part:
   mid-run is picked up by an immediate follow-up run, never queued behind more
 
 What changed:
-- only the LEAD's speech counts as "fresh" (requirement: intervene only on new
-  relevant speech from the other side, never because Tiago is talking)
+- only the COUNTERPARTY role counts as "fresh" (independent of the physical
+  adapter; never intervene merely because the operator is talking)
 - the JSON card array became one SINAL / FAÇA / DIGA block, or "--" for silence
 - "--" is not broadcast: the previously shown orientation stays on screen
 """
@@ -24,9 +24,10 @@ import time
 from pathlib import Path
 
 from ..config import settings
+from ..conversation import ROLE_COUNTERPARTY
 from ..llm import LLMError, generate, provider_name
-from .context import load_sales_context_v1, render_for_prompt
 from . import handraiser
+from .context import load_sales_context_v1, render_for_prompt
 
 log = logging.getLogger("meetcfg.copilot")
 
@@ -153,7 +154,7 @@ def parse_advice(text: str) -> dict | None:
 class CopilotEngine:
     def __init__(self, session):
         self.session = session
-        self._consumed = 0          # lead chars already covered by a run
+        self._consumed = 0          # counterparty chars already covered by a run
         self._last_run_t = 0.0      # monotonic time the last run STARTED
         self._force = False
         self._runner: asyncio.Task | None = None
@@ -174,9 +175,13 @@ class CopilotEngine:
         if self._runner and not self._runner.done():
             self._runner.cancel()
 
+    def rebase_trigger(self) -> None:
+        """Reconcile the watermark after retroactive echo classification."""
+        self._consumed = min(self._consumed, self.session.counterparty_chars())
+
     def _new_chars(self) -> int:
-        """Fresh characters spoken by the LEAD since the last run."""
-        return self.session.lead_chars() - self._consumed
+        """Fresh characters spoken by the counterparty since the last run."""
+        return max(0, self.session.counterparty_chars() - self._consumed)
 
     # -- the single-flight loop ----------------------------------------------
     async def _run_when_ready(self) -> None:
@@ -185,7 +190,14 @@ class CopilotEngine:
                 if not self._force:
                     since = time.monotonic() - self._last_run_t
                     wait_interval = settings.suggest_min_interval_s - since
-                    if self._new_chars() < settings.suggest_min_new_chars and wait_interval <= 0:
+                    new_chars = self._new_chars()
+                    settle_in = self.session.next_counterparty_settlement_delay()
+                    if new_chars < settings.suggest_min_new_chars and settle_in is not None:
+                        # Keep the single runner alive until echo grace closes.
+                        # A duplicate can invalidate the line while we wait.
+                        await asyncio.sleep(min(max(settle_in, 0.01), 2.0))
+                        continue
+                    if new_chars < settings.suggest_min_new_chars and wait_interval <= 0:
                         return  # not enough new material; a future poke restarts us
                     if wait_interval > 0:
                         await asyncio.sleep(min(wait_interval, 2.0))
@@ -207,7 +219,11 @@ class CopilotEngine:
         """Run one round. Returns False on LLM failure (caller stops the loop
         without touching _consumed, so the backlog survives for the next poke)."""
         self._last_run_t = time.monotonic()
-        snapshot = list(self.session.lines)
+        snapshot = [
+            line for line in self.session.lines
+            if not line.echo_untrusted()
+        ]
+        echo_revision = getattr(self.session, "echo_revision", 0)
         prompt = self._build_prompt(snapshot)
         await self.session.broadcast({"type": "copilot_status", "state": "thinking"})
         t0 = time.monotonic()
@@ -219,7 +235,20 @@ class CopilotEngine:
                 "type": "copilot_status", "state": "error", "msg": str(e)[:200],
             })
             return False
-        self._consumed = sum(len(l.text) for l in snapshot if l.source == "system")
+        if getattr(self.session, "echo_revision", 0) != echo_revision:
+            # A later duplicate proved that counterparty evidence in this
+            # snapshot was echo. Never publish advice computed from it.
+            log.info("copilot result discarded reason=ECHO_REVISION_CHANGED")
+            await self.session.broadcast({
+                "type": "copilot_status", "state": "idle",
+                "reason": "ECHO_REVISION_CHANGED",
+            })
+            return True
+        self._consumed = sum(
+            len(line.text)
+            for line in snapshot
+            if line.role == ROLE_COUNTERPARTY
+        )
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         advice = parse_advice(result)
         if advice is None:
