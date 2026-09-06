@@ -129,6 +129,7 @@ de Voz do Windows** e salve/converta para `.wav`. Não precisa de ffmpeg.
 .venv/bin/python backend/tools/context_selftest.py   # validação do contexto estruturado
 .venv/bin/python backend/tools/handraiser_selftest.py  # consumer de hand-raiser aceito
 .venv/bin/python backend/tools/conversion_selftest.py  # plano e confirmação entre papéis
+.venv/bin/python backend/tools/offer_agnostic_selftest.py  # seis ofertas sem catálogo local
 ```
 
 Nenhum deles chama o Codex nem carrega o whisper — rodam em segundos.
@@ -213,6 +214,27 @@ compatível, e abre **uma** sessão de conversa em memória.
   preserva receipts já aceitos. `inbound_only` do produtor nunca vira outbound.
 
 Fixtures em [`fixtures/handraiser/`](fixtures/handraiser/).
+
+### Contexto e plano agnósticos à oferta
+
+MeetCFG não mantém catálogo de ofertas nem decide taxonomia, admissão, ação ou
+outcome. Esses dados vêm de web-cfg/Governance/Warmbly. `offer.id`,
+`offer.family`, `commercial_stage` e `work_kind` são opacos: uma oferta ou
+estágio novo não exige branch no copiloto.
+
+O contexto pode ser parcial. Campo ausente permanece `UNKNOWN`; shape ou schema
+inválido continua recusado inteiro. Quando presentes, o plano consome um único
+`objective`, `gaps`, `advancement_criterion` e `next_state`. Somente gaps
+respondidos deixam de ser perguntados; um motivo explícito permite repetir.
+`context_status=STALE|CONTRADICTORY|UNKNOWN` bloqueia avanço e citação.
+
+Claims novos usam `citable_facts[]` com `claim`, `source` e, quando conhecido,
+`source_as_of`; claim sem fonte falha fechado. `acquisition_channel` descreve a
+origem comercial. `conversation_channel` descreve o meio da conversa e pode ser
+enriquecido pelo core do #14, sem mudar a aquisição.
+
+O corpus sintético em [`fixtures/offers/`](fixtures/offers/) cobre cinco núcleos
+e uma sexta oferta desconhecida, sem incluir seus IDs no engine/plano.
 
 **Antes da chamada** — briefing de 8 seções, determinístico, sem Codex e sem
 backend rodando:

@@ -30,15 +30,15 @@ SCHEMA_EXPORT = "CONFENGE_SALES_CONTEXT_EXPORT/1.0"
 _CNPJ_FMT_RE = re.compile(r"^\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}$")
 _CNPJ_DIGITS_RE = re.compile(r"^\d{14}$")
 
-# Hard enum: it steers copilot behaviour (um inbound que levantou a mão não
-# recebe a mesma abordagem de um outbound frio), so an unrecognised value is an
-# invalid document — never silently coerced to OTHER.
+# Compatibility names used only for human labels.  Validation does not close
+# this set: acquisition taxonomy is authority-owned and UNKNOWN is valid.
 CHANNELS = (
     "OUTBOUND_FIRST_TOUCH",
     "INTEL_SEED",
     "INBOUND_LIVE",
     "PARTNER",
     "OTHER",
+    "UNKNOWN",
 )
 
 CHANNEL_LABELS = {
@@ -130,10 +130,14 @@ def _validate(doc) -> str:
     if doc.get("schema") != SCHEMA_ID:
         return f"schema deve ser exatamente {SCHEMA_ID!r} (veio {doc.get('schema')!r})"
 
-    channel = doc.get("acquisition_channel")
-    if channel not in CHANNELS:
-        return (f"acquisition_channel inválido ({channel!r}); "
-                f"use um de: {', '.join(CHANNELS)}")
+    # Acquisition taxonomy belongs to the upstream authority.  MeetCFG only
+    # checks transport shape; absent/UNKNOWN is a valid partial context and a
+    # future channel must not require a consumer release.
+    for key in ("acquisition_channel", "conversation_channel", "context_status",
+                "situation", "objective", "advancement_criterion", "next_state"):
+        err = _opt_str_or_null(doc, key, key)
+        if err:
+            return err
 
     for key in ("company", "intent", "offer", "engagement", "claim_safety"):
         err = _opt_dict(doc, key)
@@ -141,39 +145,36 @@ def _validate(doc) -> str:
             return err
 
     company = doc.get("company")
-    if not isinstance(company, dict):
-        return "campo obrigatório ausente: company"
-    err = _req_str(company, "name", "company.name") or \
-        _opt_str_or_null(company, "cnpj", "company.cnpj")
-    if err:
-        return err
+    if isinstance(company, dict):
+        err = _opt_str_or_null(company, "name", "company.name") or \
+            _opt_str_or_null(company, "cnpj", "company.cnpj")
+        if err:
+            return err
 
     intent = doc.get("intent")
-    if not isinstance(intent, dict):
-        return "campo obrigatório ausente: intent"
-    err = _req_str(intent, "kind", "intent.kind") or \
-        _opt_str_or_null(intent, "reply_reason", "intent.reply_reason")
-    if err:
-        return err
+    if isinstance(intent, dict):
+        err = _opt_str_or_null(intent, "kind", "intent.kind") or \
+            _opt_str_or_null(intent, "reply_reason", "intent.reply_reason")
+        if err:
+            return err
 
     offer = doc.get("offer")
-    if not isinstance(offer, dict):
-        return "campo obrigatório ausente: offer"
-    err = _req_str(offer, "next_state", "offer.next_state") or \
-        _opt_str_or_null(offer, "current", "offer.current")
-    if err:
-        return err
+    if isinstance(offer, dict):
+        for key in ("id", "family", "next_state", "current", "price_band"):
+            err = _opt_str_or_null(offer, key, f"offer.{key}")
+            if err:
+                return err
 
-    err = _req_str(doc, "source_as_of", "source_as_of") or \
-        _req_str(doc, "provenance", "provenance")
-    if err:
-        return err
+    for key in ("source_as_of", "provenance"):
+        err = _opt_str_or_null(doc, key, key)
+        if err:
+            return err
 
     engagement = doc.get("engagement")
     if isinstance(engagement, dict):
         # engagement.type is descriptive, not behavioural: só o tipo Python é
         # exigido aqui — o conteúdo é saneado por forma em engagement_type(),
-        # nunca rejeitado. acquisition_channel é o único enum duro.
+        # nunca rejeitado. acquisition_channel também é opaco ao consumer.
         err = _opt_str_or_null(engagement, "type", "engagement.type") or \
             _opt_str_or_null(engagement, "detail", "engagement.detail")
         if err:
@@ -190,6 +191,58 @@ def _validate(doc) -> str:
             err = _opt_str_list(claim_safety, key)
             if err:
                 return f"claim_safety.{err}"
+
+    citable = doc.get("citable_facts")
+    if citable is not None:
+        if not isinstance(citable, list):
+            return "citable_facts deve ser uma lista"
+        for i, fact in enumerate(citable):
+            if not isinstance(fact, dict):
+                return f"citable_facts[{i}] deve ser um objeto"
+            for key in ("claim", "source"):
+                err = _req_str(fact, key, f"citable_facts[{i}].{key}")
+                if err:
+                    return err
+            err = _opt_str_or_null(
+                fact, "source_as_of", f"citable_facts[{i}].source_as_of"
+            )
+            if err:
+                return err
+
+    for key in ("constraints", "conflicts"):
+        err = _opt_str_list(doc, key)
+        if err:
+            return err
+    roles = doc.get("participant_roles")
+    if roles is not None:
+        if not isinstance(roles, list):
+            return "participant_roles deve ser uma lista"
+        for i, role in enumerate(roles):
+            if isinstance(role, str):
+                continue
+            if not isinstance(role, dict):
+                return f"participant_roles[{i}] deve ser string ou objeto"
+            for key in ("name", "role", "papel"):
+                err = _opt_str_or_null(role, key, f"participant_roles[{i}].{key}")
+                if err:
+                    return err
+    gaps = doc.get("gaps")
+    if gaps is not None:
+        if not isinstance(gaps, list):
+            return "gaps deve ser uma lista"
+        for i, gap in enumerate(gaps):
+            if not isinstance(gap, dict):
+                return f"gaps[{i}] deve ser um objeto"
+            for key in ("id", "question"):
+                err = _req_str(gap, key, f"gaps[{i}].{key}")
+                if err:
+                    return err
+            for key in ("status", "answer", "repeat_reason"):
+                err = _opt_str_or_null(gap, key, f"gaps[{i}].{key}")
+                if err:
+                    return err
+            if gap.get("blocking") is not None and not isinstance(gap.get("blocking"), bool):
+                return f"gaps[{i}].blocking deve ser booleano"
 
     touchpoints = doc.get("touchpoints")
     if touchpoints is not None:
@@ -266,7 +319,7 @@ def engagement_type(ctx: dict) -> str:
 
     Nunca rejeita o documento: um valor estranho aqui não invalida um dossiê
     inteiro, só perde a forma de token e vira UNKNOWN. Diferente de
-    `acquisition_channel`, que é enum duro porque de fato orienta a abordagem.
+    `acquisition_channel`, que permanece dado opaco recebido da autoridade.
     """
     engagement = ctx.get("engagement")
     if not isinstance(engagement, dict):
@@ -292,29 +345,73 @@ def never_assert_list(ctx: dict) -> list[str]:
     return seen
 
 
+def citable_facts(ctx: dict) -> list[dict]:
+    """Return only claims with an explicit source; unsourced claims stay silent."""
+    status = str(ctx.get("context_status") or "").strip().upper()
+    if status != "CURRENT":
+        return []
+    out: list[dict] = []
+    # The new claim contract is usable only when freshness/consistency is
+    # explicitly CURRENT.  Legacy dossiers below retain their provenance seam.
+    structured = ctx.get("citable_facts") or []
+    for fact in structured:
+        if not isinstance(fact, dict):
+            continue
+        claim = fact.get("claim")
+        source = fact.get("source")
+        if not _is_str(claim) or not _is_str(source):
+            continue
+        out.append({
+            "claim": claim.strip(),
+            "source": source.strip(),
+            "source_as_of": (
+                fact.get("source_as_of").strip()
+                if _is_str(fact.get("source_as_of")) else "UNKNOWN"
+            ),
+        })
+    # Backward-compatible legacy facts are usable only with the dossier's
+    # provenance.  A partial dossier without it fails closed at claim level.
+    provenance = ctx.get("provenance")
+    if _is_str(provenance):
+        as_of = ctx.get("source_as_of")
+        seen = {f["claim"] for f in out}
+        legacy = _strs(ctx.get("public_facts"))
+        safety = ctx.get("claim_safety")
+        if isinstance(safety, dict):
+            legacy += _strs(safety.get("safe_to_reference"))
+        for claim in legacy:
+            if claim not in seen:
+                seen.add(claim)
+                out.append({
+                    "claim": claim,
+                    "source": provenance.strip(),
+                    "source_as_of": as_of.strip() if _is_str(as_of) else "UNKNOWN",
+                })
+    return out
+
+
 def render_for_prompt(ctx: dict) -> str:
     """Render a validated context into the plain-text block the prompt expects.
 
-    Compact on purpose — this is prepended to every Codex call. `evidence`,
-    `provenance` e `source_as_of` ficam de fora: são rastro de auditoria para o
-    briefing humano, não material novo para o modelo afirmar.
+    Compact on purpose — this is prepended to every Codex call.  Citations carry
+    their source/provenance; raw `evidence` stays an audit trail, never a claim.
     """
     parts: list[str] = []
 
-    channel = ctx.get("acquisition_channel", "")
+    channel = ctx.get("acquisition_channel") or "UNKNOWN"
     label = CHANNEL_LABELS.get(channel, "")
     parts.append(f"Canal de aquisição: {channel}" + (f" ({label})" if label else ""))
 
     company = ctx.get("company") or {}
     cnpj = company.get("cnpj")
-    line = f"Empresa: {company.get('name', '')}"
+    line = f"Empresa: {company.get('name') or 'UNKNOWN'}"
     # company_ref stuffed into cnpj is not a CNPJ — never present it as one.
     if looks_like_cnpj(cnpj):
         line += f" (CNPJ {cnpj.strip()})"
     parts.append(line)
 
     intent = ctx.get("intent") or {}
-    line = f"Por que a conversa existe: {intent.get('kind', '')}"
+    line = f"Por que a conversa existe: {intent.get('kind') or 'UNKNOWN'}"
     if _is_str(intent.get("reply_reason")):
         line += f" — {intent['reply_reason'].strip()}"
     parts.append(line)
@@ -329,12 +426,27 @@ def render_for_prompt(ctx: dict) -> str:
     if bits:
         parts.append("Engajamento: " + " — ".join(bits))
 
-    facts = _strs(ctx.get("public_facts"))
-    claim_safety = ctx.get("claim_safety")
-    if isinstance(claim_safety, dict):
-        facts += [s for s in _strs(claim_safety.get("safe_to_reference")) if s not in facts]
-    _section(parts, "Fatos públicos que podem ser citados:", facts)
-    _section(parts, "Oportunidades mapeadas:", _strs(ctx.get("opportunities")))
+    conversation_channel = ctx.get("conversation_channel") or "UNKNOWN"
+    parts.append(f"Canal da conversa: {conversation_channel}")
+    status = str(ctx.get("context_status") or "UNKNOWN").strip().upper()
+    parts.append(f"Estado do contexto: {status}")
+    if status != "CURRENT":
+        parts.append(
+            "Contexto não confiável para afirmações: confirme antes de citar; "
+            "não avance por inferência."
+        )
+
+    facts = [
+        f"{fact['claim']} [fonte: {fact['source']}; em: {fact['source_as_of']}]"
+        for fact in citable_facts(ctx)
+    ]
+    _section(parts, "Fatos citáveis com fonte:", facts)
+    if _is_str(ctx.get("provenance")):
+        opportunities = [
+            f"{item} [hipótese recebida de: {ctx['provenance'].strip()}]"
+            for item in _strs(ctx.get("opportunities"))
+        ]
+        _section(parts, "Hipóteses/oportunidades a validar (não afirmar como fato):", opportunities)
 
     touchpoints = ctx.get("touchpoints")
     if isinstance(touchpoints, list):
@@ -364,10 +476,16 @@ def render_for_prompt(ctx: dict) -> str:
         ))
 
     offer = ctx.get("offer") or {}
+    if _is_str(offer.get("id")):
+        parts.append(f"Oferta (id opaco): {offer['id'].strip()}")
+    if _is_str(offer.get("family")):
+        parts.append(f"Família (opaca): {offer['family'].strip()}")
     if _is_str(offer.get("current")):
         parts.append(f"Oferta em jogo: {offer['current'].strip()}")
-    if _is_str(offer.get("price_band")):
-        parts.append(f"Faixa de preço publicada: {offer['price_band'].strip()}")
-    parts.append(f"Próximo passo alvo: {offer.get('next_state', '')}")
+    # Price is never promoted from context metadata into live guidance.  If it
+    # matters, the authority must express the verifiable commitment and its
+    # gates in meeting_plan.
+    if plan is None:
+        parts.append(f"Próximo passo alvo: {offer.get('next_state') or 'UNKNOWN'}")
 
     return "\n".join(parts)

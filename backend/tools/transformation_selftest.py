@@ -5,7 +5,7 @@ Test suite for P4 of CONFENGE-LIVE-INBOUND-FINAL-CUTOVER.
 Validates that:
 1. Transformed SalesContextItem (from Warmbly) passes meetcfg validation
 2. Old SalesContextExport envelope is rejected
-3. Invalid transformations are rejected
+3. Partial transformations stay valid while invalid shapes are rejected
 4. Pre-call brief renders correctly with transformed data
 """
 from __future__ import annotations
@@ -83,22 +83,23 @@ def test_reject_envelope():
         return False
 
 
-def test_reject_malformed():
-    """Test that malformed documents are rejected."""
-    malformed = {
+def test_partial_and_malformed():
+    """Partial is valid; a present field with the wrong shape is rejected."""
+    partial = {
         "schema": "CONFENGE_SALES_CONTEXT/1.0",
         "acquisition_channel": "INBOUND_LIVE",
-        # Missing required: company, intent, offer
     }
-
-    reason = _validate(malformed)
-    if reason:
-        print(f"✓ malformed document (missing company/intent/offer) correctly rejected")
-        print(f"  reason: {reason}")
-        return True
-    else:
-        print(f"FAIL: malformed document should have been rejected")
+    if _validate(partial):
+        print("FAIL: partial document should preserve UNKNOWN fields")
         return False
+    malformed = {**partial, "company": ["wrong shape"]}
+    reason = _validate(malformed)
+    if not reason:
+        print("FAIL: malformed company shape should have been rejected")
+        return False
+    print("✓ partial document accepted and malformed shape rejected")
+    print(f"  reason: {reason}")
+    return True
 
 
 def test_render_brief():
@@ -139,7 +140,7 @@ def main():
     tests = [
         ("Validate transformed inbound", test_transformed_inbound),
         ("Reject old envelope", test_reject_envelope),
-        ("Reject malformed document", test_reject_malformed),
+        ("Partial valid / malformed shape rejected", test_partial_and_malformed),
         ("Render brief from transformed data", test_render_brief),
     ]
 

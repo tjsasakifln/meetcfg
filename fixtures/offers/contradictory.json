@@ -1,0 +1,9 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "acquisition_channel": "PARTNER",
+  "context_status": "CONTRADICTORY",
+  "citable_facts": [{"claim": "o interlocutor é decisor", "source": "nota do parceiro", "source_as_of": "2026-09-05"}],
+  "objective": "resolver a contradição de papel",
+  "advancement_criterion": "papel confirmado pela contraparte",
+  "next_state": "papel confirmado"
+}

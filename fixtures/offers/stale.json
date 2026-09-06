@@ -1,0 +1,9 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "acquisition_channel": "INBOUND_LIVE",
+  "context_status": "STALE",
+  "citable_facts": [{"claim": "um documento existia", "source": "registro antigo", "source_as_of": "2020-01-01"}],
+  "objective": "confirmar se o contexto ainda vale",
+  "advancement_criterion": "fontes atuais confirmadas",
+  "next_state": "contexto atualizado"
+}

@@ -69,26 +69,36 @@ def main() -> None:
         reject("schema de outra versão",
                json.dumps({**base, "schema": "CONFENGE_SALES_CONTEXT/2.0"}), tmpdir)
 
-        reject("acquisition_channel desconhecido",
-               json.dumps({**base, "acquisition_channel": "COLD_CALL"}), tmpdir)
-        reject("acquisition_channel em minúsculas (sem coerção)",
-               json.dumps({**base, "acquisition_channel": "outbound_first_touch"}), tmpdir)
-        no_channel = {k: v for k, v in base.items() if k != "acquisition_channel"}
-        reject("acquisition_channel ausente", json.dumps(no_channel), tmpdir)
+        for label, partial in (
+            ("acquisition_channel opaco", {**base, "acquisition_channel": "COLD_CALL"}),
+            ("acquisition_channel minúsculo", {**base, "acquisition_channel": "partner_referral"}),
+            ("acquisition_channel ausente", {k: v for k, v in base.items()
+                                              if k != "acquisition_channel"}),
+            ("company.name vazio", {**base, "company": {"name": "   "}}),
+            ("offer.next_state ausente", {**base, "offer": {"current": None}}),
+            ("provenance ausente", {k: v for k, v in base.items() if k != "provenance"}),
+        ):
+            p = tmpdir / f"partial_{label.replace(' ', '_')}.json"
+            p.write_text(json.dumps(partial), encoding="utf-8")
+            ctx, reason = load_sales_context_v1(p)
+            check(f"aceita {label} como contexto parcial/opaco", reason, "")
+            check(f"{label} devolve dict", isinstance(ctx, dict), True)
+        reject("acquisition_channel não-string",
+               json.dumps({**base, "acquisition_channel": 42}), tmpdir)
 
         reject("JSON válido que não é objeto", json.dumps([base]), tmpdir)
         reject("JSON válido que é string", json.dumps("contexto"), tmpdir)
         reject("JSON malformado", '{"schema": "CONFENGE_SALES_CONTEXT/1.0",', tmpdir)
 
         reject("company não é objeto", json.dumps({**base, "company": "Marajoara"}), tmpdir)
-        reject("company.name vazio",
-               json.dumps({**base, "company": {"name": "   "}}), tmpdir)
-        reject("offer.next_state ausente",
-               json.dumps({**base, "offer": {"current": None}}), tmpdir)
-        reject("provenance ausente",
-               json.dumps({k: v for k, v in base.items() if k != "provenance"}), tmpdir)
         reject("public_facts com item não-string",
                json.dumps({**base, "public_facts": ["ok", 42]}), tmpdir)
+        reject("participant_roles com item inválido",
+               json.dumps({**base, "participant_roles": [42]}), tmpdir)
+        reject("conflicts com item inválido",
+               json.dumps({**base, "conflicts": [42]}), tmpdir)
+        reject("gaps com item inválido",
+               json.dumps({**base, "gaps": [42]}), tmpdir)
         reject("touchpoint sem summary",
                json.dumps({**base, "touchpoints": [{"at": "2026-08-04"}]}), tmpdir)
 

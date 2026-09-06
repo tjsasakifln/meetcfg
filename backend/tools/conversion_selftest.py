@@ -32,7 +32,7 @@ reload_settings()
 from app.copilot.conversion import (  # noqa: E402
     CONVERSION_DISABLED, NEXT_STEP_STATES, SCHEMA_MEETING_PLAN,
     TIAGO_FIELDS, UTT_COMMIT, UTT_CONFIRM, UTT_HEDGE, UTT_QUESTION,
-    UTT_REFUSAL, WORK_KINDS, apply_lines, classify_utterance,
+    UTT_REFUSAL, apply_lines, classify_utterance,
     crm_side_effect_keys, firm_price_deadline_blockers, is_question,
     live_commitments, meeting_plan_of, operational_output, parse_meeting_plan,
     questions_to_ask, _extract_commitment,
@@ -142,7 +142,12 @@ def test_plan_validation():
     check("descoberta plan loads", reason, "")
     check("descoberta stage from authority", plan["commercial_stage"], "DESCOBERTA")
     check("descoberta work_kind DIAGNOSTICO", plan["work_kind"], "DIAGNOSTICO")
-    check("work kinds include inspeção/campo", "INSPECAO_CAMPO" in WORK_KINDS, True)
+    future_kind, _ = parse_meeting_plan({
+        "schema": SCHEMA_MEETING_PLAN,
+        "work_kind": "future opaque work",
+    })
+    check("future work kind remains opaque",
+          (future_kind or {}).get("work_kind"), "FUTURE_OPAQUE_WORK")
 
     bad, bad_reason = parse_meeting_plan(load_conv("plan_schema_invalid.json"))
     check("invalid version no plan", bad, None)
@@ -161,14 +166,15 @@ def test_plan_validation():
     check("missing stage is UNKNOWN", (no_stage or {}).get("commercial_stage"), "UNKNOWN")
     check("missing stage limited", (no_stage or {}).get("limited"), True)
 
-    bogus, bogus_reason = parse_meeting_plan({
+    future, future_reason = parse_meeting_plan({
         "schema": SCHEMA_MEETING_PLAN,
         "commercial_stage": "PIPELINE_WON",
         "objective": "x",
         "work_kind": "DIAGNOSTICO",
     })
-    check("bogus stage refused", bogus, None)
-    check("bogus stage treatable", "estágio comercial inválido" in (bogus_reason or ""), True)
+    check("future authority stage accepted", future_reason, "")
+    check("future authority stage remains opaque",
+          (future or {}).get("commercial_stage"), "PIPELINE_WON")
 
     ctx, ctx_reason = load_sales_context_v1(CONV_FX / "sales_context_with_plan.json")
     check("sales context with plan still valid dossier", ctx_reason, "")
@@ -177,7 +183,7 @@ def test_plan_validation():
     check("same schema as live path", (plan2 or {}).get("schema"), SCHEMA_MEETING_PLAN)
     rendered = render_for_prompt(ctx)
     check("prompt has estágio", "Estágio comercial" in rendered, True)
-    check("prompt has work distinction", "diagnóstico ≠ conclusão técnica" in rendered, True)
+    check("prompt has generic no-invention rule", "hipótese/análise não vira conclusão" in rendered, True)
 
 
 def test_questions_not_repeated():

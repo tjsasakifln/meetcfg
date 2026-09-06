@@ -21,11 +21,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.copilot.context import (  # noqa: E402
-    CHANNEL_LABELS, engagement_type, load_sales_context_v1, never_assert_list,
+    CHANNEL_LABELS, citable_facts, engagement_type, load_sales_context_v1,
+    looks_like_cnpj, never_assert_list,
 )
-from app.copilot.conversion import (  # noqa: E402
-    WORK_KIND_LABELS, meeting_plan_of, questions_to_ask,
-)
+from app.copilot.conversion import meeting_plan_of, questions_to_ask  # noqa: E402
 
 # The loader logs its rejection reason; here that reason is printed to stderr by
 # main(), so silence the logger to avoid saying it twice.
@@ -47,9 +46,9 @@ def render_brief(ctx: dict) -> str:
         out.append("")
 
     company = ctx.get("company") or {}
-    quem = [company.get("name", "")]
+    quem = [company.get("name") or "UNKNOWN"]
     cnpj = company.get("cnpj")
-    if isinstance(cnpj, str) and cnpj.strip():
+    if looks_like_cnpj(cnpj):
         quem.append(f"CNPJ {cnpj.strip()}")
     engagement = ctx.get("engagement") or {}
     eng = [t for t in [engagement_type(ctx)] if t]
@@ -89,8 +88,11 @@ def render_brief(ctx: dict) -> str:
         seen.append(item)
     section("O QUE JÁ VIU/RECEBEU", seen or ["nada registrado — trate como primeiro contato"])
 
-    facts = _strs(ctx.get("public_facts")) + _strs(ctx.get("opportunities"))
-    fortes = facts[:3]
+    facts = citable_facts(ctx)
+    fortes = [
+        f"{fact['claim']} [fonte: {fact['source']}; em: {fact['source_as_of']}]"
+        for fact in facts[:3]
+    ]
     while len(fortes) < 3:
         fortes.append("(sem terceiro fato levantado — pergunte em vez de afirmar)")
     section("3 FATOS FORTES", fortes)
@@ -119,9 +121,9 @@ def render_brief(ctx: dict) -> str:
             f"objetivo único: {plan.get('objective') or 'UNKNOWN'}",
         ])
         section("TIPO DE TRABALHO", [
-            WORK_KIND_LABELS.get(kind, kind),
-            "diagnóstico ≠ conclusão técnica; análise documental ≠ inspeção/campo; "
-            "escopo ≠ proposta dimensionada",
+            kind,
+            "hipótese/análise não vira conclusão; hesitação não vira aceite; "
+            "escopo não vira proposta ou contratação",
         ])
         section("CRITÉRIO DE AVANÇO", [plan.get("advancement_criterion") or "UNKNOWN"])
         qs = questions_to_ask(plan)
@@ -137,7 +139,11 @@ def render_brief(ctx: dict) -> str:
              else "nenhum limite declarado — trate tudo como não verificado"])
 
     offer = ctx.get("offer") or {}
-    passo = [offer.get("next_state", "")]
+    target = (
+        plan.get("next_state") if isinstance(plan, dict)
+        else offer.get("next_state")
+    ) or "UNKNOWN"
+    passo = [target]
     current = offer.get("current")
     if isinstance(current, str) and current.strip():
         passo.insert(0, f"Oferta em jogo: {current.strip()}")

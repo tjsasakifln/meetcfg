@@ -1,0 +1,123 @@
+[
+  {
+    "case": "pericia",
+    "schema": "CONFENGE_SALES_CONTEXT/1.0",
+    "acquisition_channel": "INBOUND_LIVE",
+    "conversation_channel": "google_meet",
+    "context_status": "CURRENT",
+    "company": {"name": "Condomínio Cedro", "cnpj": null},
+    "situation": "síndica relata fissuras e possui fotos, sem conclusão técnica",
+    "intent": {"kind": "entender quais evidências precisam ser analisadas", "reply_reason": null},
+    "offer": {"id": "expert_evidence_assistance", "family": "expert_services", "current": "assistência técnica", "next_state": "autorizar análise dos documentos disponíveis"},
+    "source_as_of": "2026-09-05",
+    "provenance": "formulário inbound",
+    "citable_facts": [{"claim": "há fotos das fissuras", "source": "formulário inbound", "source_as_of": "2026-09-05"}],
+    "claim_safety": {"never_assert": ["não afirmar causa, responsabilidade, prazo, ART ou conclusão pericial"], "safe_to_reference": []},
+    "meeting_plan": {
+      "schema": "MEETCFG_MEETING_PLAN/1.0",
+      "commercial_stage": "DISCOVERY",
+      "objective": "entender a questão e mapear evidências disponíveis",
+      "participant_roles": [{"name": "UNKNOWN", "role": "síndica"}],
+      "gaps": [{"id": "evidence_set", "question": "Quais documentos e registros existem além das fotos?", "status": "OPEN", "blocking": true}],
+      "advancement_criterion": "sair com a lista de evidências disponíveis e autorização de análise",
+      "next_state": "documentos autorizados para análise"
+    }
+  },
+  {
+    "case": "avaliacao",
+    "schema": "CONFENGE_SALES_CONTEXT/1.0",
+    "acquisition_channel": "OUTBOUND_FIRST_TOUCH",
+    "conversation_channel": "phone",
+    "context_status": "CURRENT",
+    "company": {"name": "Patrimônio Aurora", "cnpj": null},
+    "situation": "gestor respondeu ao contato sobre decisão patrimonial futura",
+    "intent": {"kind": "delimitar a finalidade da avaliação", "reply_reason": null},
+    "offer": {"id": "property_valuation", "family": "valuation", "current": "avaliação de imóvel", "next_state": "receber finalidade e documentação do imóvel"},
+    "source_as_of": "2026-09-05",
+    "provenance": "resposta ao contato outbound",
+    "citable_facts": [{"claim": "a finalidade ainda não foi informada", "source": "resposta do gestor", "source_as_of": "2026-09-05"}],
+    "claim_safety": {"never_assert": ["não afirmar valor, método, prazo ou aceitação"], "safe_to_reference": []},
+    "meeting_plan": {
+      "schema": "MEETCFG_MEETING_PLAN/1.0",
+      "commercial_stage": "SCOPE",
+      "objective": "delimitar finalidade, objeto e documentos",
+      "participant_roles": [{"name": "UNKNOWN", "role": "gestor patrimonial"}],
+      "gaps": [{"id": "purpose", "question": "Qual decisão a avaliação precisa apoiar?", "status": "OPEN", "blocking": true}],
+      "advancement_criterion": "sair com finalidade, objeto e documentação nomeados",
+      "next_state": "escopo disponível para análise"
+    }
+  },
+  {
+    "case": "engenharia_documentacao",
+    "schema": "CONFENGE_SALES_CONTEXT/1.0",
+    "acquisition_channel": "PARTNER",
+    "conversation_channel": "google_meet",
+    "context_status": "CURRENT",
+    "company": {"name": "Edifício Ipê", "cnpj": null},
+    "situation": "parceiro encaminhou dúvida sobre documentação existente",
+    "intent": {"kind": "entender a divergência antes de definir escopo", "reply_reason": null},
+    "offer": {"id": "building_engineering_documentation", "family": "engineering_documentation", "current": "engenharia e documentação", "next_state": "comparar os documentos citados"},
+    "source_as_of": "2026-09-05",
+    "provenance": "indicação do parceiro",
+    "conflicts": ["duas versões documentais incompatíveis"],
+    "citable_facts": [{"claim": "foram citadas duas versões de uma planta", "source": "mensagem encaminhada pelo parceiro", "source_as_of": "2026-09-05"}],
+    "claim_safety": {"never_assert": ["não afirmar qual documento prevalece, capacidade ou atribuição"], "safe_to_reference": []},
+    "meeting_plan": {
+      "schema": "MEETCFG_MEETING_PLAN/1.0",
+      "commercial_stage": "OBJECTION",
+      "objective": "nomear a divergência e o insumo que permite verificá-la",
+      "participant_roles": [{"name": "UNKNOWN", "role": "UNKNOWN"}],
+      "gaps": [{"id": "document_versions", "question": "Quais são as versões e suas fontes?", "status": "OPEN", "blocking": true}],
+      "advancement_criterion": "sair com as duas versões identificadas e disponíveis",
+      "next_state": "comparação documental autorizada"
+    }
+  },
+  {
+    "case": "sst",
+    "schema": "CONFENGE_SALES_CONTEXT/1.0",
+    "acquisition_channel": "INBOUND_LIVE",
+    "conversation_channel": "phone",
+    "context_status": "CURRENT",
+    "company": {"name": "Operação Serra", "cnpj": null},
+    "situation": "responsável informou que documentos de SST precisam ser organizados",
+    "intent": {"kind": "mapear documentos, responsáveis e lacunas", "reply_reason": null},
+    "offer": {"id": "occupational_safety", "family": "workplace_safety", "current": "segurança do trabalho", "next_state": "permitir análise dos documentos existentes"},
+    "source_as_of": "2026-09-05",
+    "provenance": "pedido inbound",
+    "citable_facts": [{"claim": "há documentos de SST a organizar", "source": "declaração do responsável", "source_as_of": "2026-09-05"}],
+    "claim_safety": {"never_assert": ["não afirmar conformidade, entrega, prazo ou responsável técnico"], "safe_to_reference": []},
+    "meeting_plan": {
+      "schema": "MEETCFG_MEETING_PLAN/1.0",
+      "commercial_stage": "SCOPE",
+      "objective": "mapear conjunto documental e responsáveis",
+      "participant_roles": [{"name": "UNKNOWN", "role": "responsável administrativo"}],
+      "gaps": [{"id": "document_inventory", "question": "Quais documentos estão disponíveis e quem os mantém?", "status": "OPEN", "blocking": true}],
+      "advancement_criterion": "sair com inventário inicial e responsável pelo compartilhamento",
+      "next_state": "documentos disponíveis para análise"
+    }
+  },
+  {
+    "case": "b2g",
+    "schema": "CONFENGE_SALES_CONTEXT/1.0",
+    "acquisition_channel": "OUTBOUND_FIRST_TOUCH",
+    "conversation_channel": "google_meet",
+    "context_status": "CURRENT",
+    "company": {"name": "Infraestrutura Vale", "cnpj": null},
+    "situation": "empresa aceitou conversar sobre uma oportunidade pública citada",
+    "intent": {"kind": "verificar interesse e critérios antes de qualquer proposta", "reply_reason": null},
+    "offer": {"id": "public_works_b2g", "family": "public_market", "current": "apoio a obras públicas", "next_state": "envolver o decisor para revisar o escopo"},
+    "source_as_of": "2026-09-05",
+    "provenance": "resposta ao contato outbound",
+    "citable_facts": [{"claim": "a empresa aceitou a conversa", "source": "resposta ao convite", "source_as_of": "2026-09-05"}],
+    "claim_safety": {"never_assert": ["não afirmar habilitação, vitória, preço, prazo ou contratação"], "safe_to_reference": []},
+    "meeting_plan": {
+      "schema": "MEETCFG_MEETING_PLAN/1.0",
+      "commercial_stage": "NEXT_STEP",
+      "objective": "envolver o decisor adequado para revisar o escopo",
+      "participant_roles": [{"name": "UNKNOWN", "role": "interlocutor técnico"}],
+      "gaps": [{"id": "decision_owner", "question": "Quem decide se o escopo seguirá para análise?", "status": "OPEN", "blocking": true}],
+      "advancement_criterion": "sair com decisor nomeado e uma janela verificável de revisão",
+      "next_state": "revisão de escopo com decisor"
+    }
+  }
+]
