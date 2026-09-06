@@ -12,6 +12,8 @@ import logging
 import re
 from typing import Any
 
+from ..conversation import ROLE_COUNTERPARTY, ROLE_OPERATOR, normalize_role
+
 log = logging.getLogger("meetcfg.conversion")
 
 SCHEMA_MEETING_PLAN = "MEETCFG_MEETING_PLAN/1.0"
@@ -706,10 +708,13 @@ def _negated_any(low: str, *words: str) -> bool:
     return any(_negated(low, w) for w in words)
 
 
-def _extract_owner(low: str, source: str) -> str:
+def _extract_owner(low: str, role: str) -> str:
     """Who is on the hook. Never invents; UNKNOWN blocks confirmation."""
-    speaker = "lead" if source == "system" else "founder"
-    other = "founder" if source == "system" else "lead"
+    role = normalize_role(role) or ""
+    if role not in (ROLE_OPERATOR, ROLE_COUNTERPARTY):
+        return UNKNOWN
+    speaker = "lead" if role == ROLE_COUNTERPARTY else "founder"
+    other = "founder" if role == ROLE_COUNTERPARTY else "lead"
     if _FIRST_PERSON_SG_RE.search(low):
         return speaker
     if _SECOND_PERSON_RE.search(low):
@@ -721,7 +726,10 @@ def _extract_owner(low: str, source: str) -> str:
     return UNKNOWN
 
 
-def _extract_commitment(text: str, source: str) -> dict | None:
+def _extract_commitment(text: str, role: str) -> dict | None:
+    # Legacy direct callers may still pass mic|system. Normalize at the seam;
+    # the conversion implementation below only reasons about roles.
+    role = normalize_role(role) or ""
     low = _fold(text)
     action = ""
     input_ = UNKNOWN
@@ -765,7 +773,7 @@ def _extract_commitment(text: str, source: str) -> dict | None:
     if not action:
         return None
     window = _extract_window(text) or UNKNOWN
-    owner = _extract_owner(low, source)
+    owner = _extract_owner(low, role)
     return {
         "action": action,
         "owner": owner,
@@ -883,16 +891,22 @@ def _open_from_other(state: dict, speaker_state: str) -> dict | None:
 
 
 def _line_parts(line) -> tuple[str, str, bool]:
-    """(source, text, echo_derived). echo_derived lines are known duplicates."""
+    """(role, text, echo_derived), normalizing legacy source-only fixtures."""
     if isinstance(line, dict):
-        return (_str(line.get("source")), _str(line.get("text")),
+        role = normalize_role(line.get("role"), legacy_source=line.get("source")) or ""
+        return (role, _str(line.get("text")),
                 bool(line.get("echo_derived")))
-    return (_str(getattr(line, "source", "")), _str(getattr(line, "text", "")),
-            bool(getattr(line, "echo_derived", False)))
+    role = normalize_role(
+        getattr(line, "role", None), legacy_source=getattr(line, "source", None),
+    ) or ""
+    echo_untrusted = getattr(line, "echo_untrusted", None)
+    return (role, _str(getattr(line, "text", "")),
+            bool(echo_untrusted() if callable(echo_untrusted)
+                 else getattr(line, "echo_derived", False)))
 
 
-def _absorb_answers(state: dict, plan: dict | None, text: str, source: str) -> None:
-    if source != "system" or not isinstance(plan, dict):
+def _absorb_answers(state: dict, plan: dict | None, text: str, role: str) -> None:
+    if role != ROLE_COUNTERPARTY or not isinstance(plan, dict):
         return
     low = _fold(text)
     if len(low) < 8:
@@ -923,26 +937,26 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
     if isinstance(plan, dict) and state.get("commercial_stage") is None:
         # Record authority stage once; never overwrite from speech.
         state["commercial_stage"] = plan.get("commercial_stage") or UNKNOWN
-    source, text, echo_derived = _line_parts(line)
+    role, text, echo_derived = _line_parts(line)
     if not text:
         return state
     low = _fold(text)
     speaker_state = (
-        "SAID_BY_LEAD" if source == "system"
-        else "SAID_BY_FOUNDER" if source == "mic"
+        "SAID_BY_LEAD" if role == ROLE_COUNTERPARTY
+        else "SAID_BY_FOUNDER" if role == ROLE_OPERATOR
         else "UNKNOWN"
     )
-    # S3(d): an unrecognised source is not a third speaker. It must never
+    # S3(d): an unrecognised role is not a third speaker. It must never
     # satisfy _open_from_other's "different speaker" test.
     if speaker_state == "UNKNOWN":
-        log.warning("conversion observe reason=UNKNOWN_SOURCE_IGNORED source=%r", source)
+        log.warning("conversion observe reason=UNKNOWN_ROLE_IGNORED role=%r", role)
         return state
     origin = "lead" if speaker_state == "SAID_BY_LEAD" else "founder"
     utt_class = classify_utterance(text)
 
     if _REVOKE_RE.search(low) or _REFUSAL_RE.search(low):
         _revoke_live(state, origin=origin, span=text)
-        _absorb_answers(state, plan, text, source)
+        _absorb_answers(state, plan, text, role)
         _refresh_pending_questions(state)
         return state
 
@@ -959,11 +973,11 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
         _record_class(item, speaker_state, utt_class, echo_derived)
         state["board"].append(item)
         log.info("conversion observe reason=EVALUATION_NOT_ACCEPTANCE item_id=%s", item["id"])
-        _absorb_answers(state, plan, text, source)
+        _absorb_answers(state, plan, text, role)
         _refresh_pending_questions(state)
         return state
 
-    extracted = _extract_commitment(text, source)
+    extracted = _extract_commitment(text, role)
     confirmed_now = bool(_CONFIRM_RE.search(low))
 
     if extracted:
@@ -981,7 +995,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
                 ):
                     _promote_mutual(pending, confirming_class=utt_class,
                                     confirming_echo=echo_derived)
-            _absorb_answers(state, plan, text, source)
+            _absorb_answers(state, plan, text, role)
             _refresh_pending_questions(state)
             return state
         item = _new_item(
@@ -1002,7 +1016,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
         state["board"].append(item)
         log.info("conversion observe reason=%s item_id=%s class=%s",
                  speaker_state, item["id"], utt_class)
-        _absorb_answers(state, plan, text, source)
+        _absorb_answers(state, plan, text, role)
         _refresh_pending_questions(state)
         return state
 
@@ -1012,23 +1026,25 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
             # Merge what the confirming line carries BEFORE the gate runs:
             # "combinado, você envia até sexta" supplies the owner and window
             # the promotion rule requires.
-            extra = _extract_commitment(text, source) or {}
+            extra = _extract_commitment(text, role) or {}
             if extra:
                 _merge_fields(pending, extra)
             win = _extract_window(text)
             if win and _str(pending.get("window")) in ("", UNKNOWN):
                 pending["window"] = win
             if re.search(r"\b(voce|vc)\b", low) and _str(pending.get("owner")) in ("", UNKNOWN):
-                pending["owner"] = "lead" if source == "mic" else "founder"
+                pending["owner"] = (
+                    "lead" if role == ROLE_OPERATOR else "founder"
+                )
             _record_class(pending, speaker_state, utt_class, echo_derived)
             _promote_mutual(pending, confirming_class=utt_class,
                             confirming_echo=echo_derived)
             pending["questions"] = missing_field_questions(pending)
-        _absorb_answers(state, plan, text, source)
+        _absorb_answers(state, plan, text, role)
         _refresh_pending_questions(state)
         return state
 
-    _absorb_answers(state, plan, text, source)
+    _absorb_answers(state, plan, text, role)
     _refresh_pending_questions(state)
     return state
 

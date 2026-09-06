@@ -124,12 +124,30 @@ de Voz do Windows** e salve/converta para `.wav`. Não precisa de ffmpeg.
 ```bash
 .venv/bin/python backend/tools/parse_selftest.py     # formato SINAL/FAÇA/DIGA e "--"
 .venv/bin/python backend/tools/echo_selftest.py      # supressão de eco mic↔lead
+.venv/bin/python backend/tools/session_selftest.py   # sessões, adapters, roles e replay 100×
 .venv/bin/python backend/tools/watchdog_selftest.py  # watchdog de transcrição travada
 .venv/bin/python backend/tools/context_selftest.py   # validação do contexto estruturado
 .venv/bin/python backend/tools/handraiser_selftest.py  # consumer de hand-raiser aceito
+.venv/bin/python backend/tools/conversion_selftest.py  # plano e confirmação entre papéis
 ```
 
 Nenhum deles chama o Codex nem carrega o whisper — rodam em segundos.
+
+### Contrato de entrada de conversa
+
+O core recebe `AdapterBinding`, `PCM16kFrame` e `TranscriptEvent` de
+`backend/app/conversation.py`: sessão, `conversation_channel`
+(`google_meet|phone`), papel
+(`operator|counterparty`), source físico, identidade/health do adapter e PCM
+mono Int16 a 16 kHz. O adapter Meet preserva o protocolo existente e normaliza
+`mic→operator`, `system→counterparty`. Um adapter telefônico implementa a mesma
+interface `ConversationInputAdapter`, define seus próprios sources físicos e
+os mapeia aos dois papéis; ele não altera `acquisition_channel`, que continua
+sendo exclusivamente a origem comercial do lead.
+
+Bindings Meet e telefone com o mesmo `session_id` alimentam deliberadamente o
+mesmo core, engine, plano e estado. IDs de sessão diferentes permanecem
+isolados, inclusive em replay, troca de canal e prune.
 
 ## Contexto estruturado por lead (opcional)
 

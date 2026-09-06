@@ -31,9 +31,12 @@ jobs:
         run: |
           python backend/tools/parse_selftest.py
           python backend/tools/echo_selftest.py
+          python backend/tools/session_selftest.py
+          python backend/tools/watchdog_selftest.py
           python backend/tools/context_selftest.py
           python backend/tools/transformation_selftest.py
           python backend/tools/handraiser_selftest.py
+          python backend/tools/conversion_selftest.py
       - name: Secret / PII fixture guard
         run: |
           set -e
