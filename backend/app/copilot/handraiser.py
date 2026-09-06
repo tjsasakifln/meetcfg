@@ -64,22 +64,6 @@ PIN_HASH = hashlib.sha256(
 ).hexdigest()
 
 SOURCE_LANE = "CONFENGE_WEB"
-OFFER_CANDIDATE = "private_project_technical_readiness_assessment"
-PRIVATE_ASSET = "private_project_technical_readiness_v1"
-NUCLEI = (
-    "expert_evidence_assistance",
-    "property_valuation",
-    "building_engineering_documentation",
-    "occupational_safety",
-    "public_works_b2g",
-)
-NUCLEUS_LABELS = {
-    "expert_evidence_assistance": "Assistência em prova pericial",
-    "property_valuation": "Avaliação patrimonial",
-    "building_engineering_documentation": "Documentação de engenharia predial",
-    "occupational_safety": "Segurança do trabalho",
-    "public_works_b2g": "Obras públicas (B2G)",
-}
 _ALLOWED_SOURCE_LANES = {
     "CONFENGE_WEB",
     "confenge_web",
@@ -138,9 +122,7 @@ PRODUCER_ERROR = "PRODUCER_ERROR"
 SCHEMA_UNPINNED = "SCHEMA_UNPINNED"
 SCHEMA_PIN_MISMATCH = "SCHEMA_PIN_MISMATCH"
 MISSING_CONFLICT_CLEARANCE = "MISSING_CONFLICT_CLEARANCE"
-NUCLEUS_UNKNOWN = "NUCLEUS_UNKNOWN"
 SOURCE_LANE_MISMATCH = "SOURCE_LANE_MISMATCH"
-OFFER_CANDIDATE_MISMATCH = "OFFER_CANDIDATE_MISMATCH"
 OUTBOUND_NOT_ELIGIBLE = "OUTBOUND_NOT_ELIGIBLE"
 READBACK_INCOMPLETE = "READBACK_INCOMPLETE"
 
@@ -414,13 +396,6 @@ def nucleus_id_of(*srcs) -> str:
     return ""
 
 
-def nucleus_reason(*srcs) -> str:
-    nid = nucleus_id_of(*srcs)
-    if nid not in NUCLEI:
-        return NUCLEUS_UNKNOWN
-    return ""
-
-
 def eligibility_reason(*srcs) -> str:
     for src in srcs:
         if not isinstance(src, dict):
@@ -441,13 +416,17 @@ def offer_candidate_of(*srcs) -> str:
     return ""
 
 
-def offer_reason(*srcs) -> str:
-    v = offer_candidate_of(*srcs)
-    if not v:
-        return ""
-    if v != OFFER_CANDIDATE:
-        return OFFER_CANDIDATE_MISMATCH
-    return ""
+def context_status_of(*srcs) -> str:
+    """Preserve the most conservative status supplied by any authority layer."""
+    rank = {"CURRENT": 0, UNKNOWN: 1, "STALE": 2, "CONTRADICTORY": 3}
+    statuses: list[str] = []
+    for src in srcs:
+        if not isinstance(src, dict):
+            continue
+        raw = _str(src.get("context_status")).upper()
+        if raw:
+            statuses.append(raw if raw in rank else UNKNOWN)
+    return max(statuses, key=rank.get) if statuses else ""
 
 
 def _restriction_class(conflict: dict | None) -> str:
@@ -748,6 +727,12 @@ def map_to_dossier(
 
     nucleus = nucleus_id_of(extras, src, admission)
     offer_candidate = offer_candidate_of(extras, src, admission) or UNKNOWN
+    offer_family = (
+        _str(extras.get("offer_family"))
+        or _str(src.get("offer_family"))
+        or _str(offer_src.get("family"))
+        or UNKNOWN
+    )
     conflict = _conflict_blob(extras, src, admission)
     decision_role = (
         _str(identity_blob.get("decision_role"))
@@ -760,6 +745,7 @@ def map_to_dossier(
         or outcome
         or UNKNOWN
     )
+    context_status = context_status_of(extras, src, admission)
 
     dossier: dict[str, Any] = {
         "schema": SCHEMA_ID,
@@ -776,6 +762,8 @@ def map_to_dossier(
             "reply_reason": reply_reason,
         },
         "offer": {
+            "id": offer_candidate,
+            "family": offer_family,
             "current": current_offer,
             "next_state": next_state,
         },
@@ -792,6 +780,8 @@ def map_to_dossier(
         "why_now": why_now,
         "next_state": next_state,
     }
+    if context_status:
+        dossier["context_status"] = context_status
     if identity_ref:
         dossier["company"]["identity_ref"] = identity_ref
         dossier["identity_ref"] = identity_ref
@@ -817,7 +807,7 @@ def map_to_dossier(
 
     dossier["nucleus_id"] = nucleus or UNKNOWN
     dossier["offer_candidate"] = offer_candidate
-    dossier["private_asset"] = _str(extras.get("private_asset") or src.get("private_asset")) or PRIVATE_ASSET
+    dossier["private_asset"] = _str(extras.get("private_asset") or src.get("private_asset")) or UNKNOWN
     dossier["decision_role"] = decision_role
     dossier["urgency"] = _str(situation.get("urgency")) or UNKNOWN
     dossier["city_service_area_class"] = _str(situation.get("city_service_area_class")) or UNKNOWN
@@ -881,7 +871,12 @@ def map_readback_to_dossier(readback: dict) -> dict:
         "acquisition_channel": "INBOUND_LIVE",
         "company": {"name": UNKNOWN, "cnpj": None},
         "intent": {"kind": UNKNOWN, "reply_reason": None},
-        "offer": {"current": None, "next_state": UNKNOWN},
+        "offer": {
+            "id": _str(readback.get("offer_candidate")) or UNKNOWN,
+            "family": _str(readback.get("offer_family")) or UNKNOWN,
+            "current": None,
+            "next_state": UNKNOWN,
+        },
         "source_as_of": acknowledged_at,
         "freshness": {"as_of": acknowledged_at},
         "provenance": "warmbly_net_new_inbound_readback",
@@ -1033,7 +1028,7 @@ def render_conversation_layer(dossier: dict) -> dict:
     )
 
     nucleus_id = _str(dossier.get("nucleus_id"))
-    nucleo = NUCLEUS_LABELS.get(nucleus_id, UNKNOWN)
+    nucleo = nucleus_id or UNKNOWN
     problema = _str(dossier.get("problema")) or UNKNOWN
     nucleo_problema = nucleo if problema in ("", UNKNOWN) else f"{nucleo} — {problema}"
     permitted = [s for s in (dossier.get("permitted_facts") or facts) if isinstance(s, str) and s.strip()]
@@ -1058,10 +1053,6 @@ def render_conversation_layer(dossier: dict) -> dict:
     if why and why != UNKNOWN:
         resumo = f"{nucleo}: {why}" if nucleo != UNKNOWN else why
     offer_candidate = _str(dossier.get("offer_candidate")) or UNKNOWN
-    if offer_candidate not in (UNKNOWN, OFFER_CANDIDATE, ""):
-        offer_candidate = UNKNOWN  # never render an unpinned commercial offer as truth
-    if offer_candidate == OFFER_CANDIDATE and opps == []:
-        opps = [OFFER_CANDIDATE]
 
     return {
         "empresa": _str(company.get("name")) or UNKNOWN,
@@ -1362,11 +1353,12 @@ def consume(
         for k in (
             "handraiser_id", "origin", "lane", "source", "receipt", "inbound_only",
             "source_as_of", "freshness", "situacao", "nucleus_id", "nucleus",
-            "offer_candidate", "private_asset", "conflict", "identity",
+            "offer_candidate", "offer_family", "private_asset", "conflict", "identity",
             "situation", "permitted", "auto_send", "outbound_eligible",
             "qualification_state", "schema_hash", "contracts", "owner_links",
             "policy_version", "policy_hash", "decision_role", "decision",
             "meeting_plan", "commercial_stage",
+            "context_status",
         ):
             if k in doc:
                 extras[k] = doc[k]
@@ -1399,12 +1391,6 @@ def consume(
         if readback_fail:
             log.info("handraiser readback refused reason=%s", readback_fail)
             return _fail(readback_fail)
-        nuc_fail = nucleus_reason(doc)
-        if nuc_fail:
-            return _fail(nuc_fail)
-        offer_fail = offer_reason(doc)
-        if offer_fail:
-            return _fail(offer_fail)
     else:
         pin = pin_reason(doc)
         if pin:
@@ -1413,18 +1399,12 @@ def consume(
         lane_fail = source_lane_reason(doc, extras, admission or {}, item or {})
         if lane_fail:
             return _fail(lane_fail)
-        nuc_fail = nucleus_reason(doc, extras, admission or {}, item or {})
-        if nuc_fail:
-            return _fail(nuc_fail)
         conf_fail = conflict_reason(doc, extras, admission or {}, item or {})
         if conf_fail:
             return _fail(conf_fail)
         elig_fail = eligibility_reason(doc, extras, admission or {}, item or {})
         if elig_fail:
             return _fail(elig_fail)
-        offer_fail = offer_reason(doc, extras, admission or {}, item or {})
-        if offer_fail:
-            return _fail(offer_fail)
     if closed is None:
         # Pinned runtime still requires an explicit ACCEPTED. Native unpinned
         # already failed SCHEMA_UNPINNED; a pinned envelope without decision
@@ -1473,6 +1453,9 @@ def consume(
         dossier.setdefault("situacao", UNKNOWN)
         dossier.setdefault("outcome", closed or UNKNOWN)
         dossier.setdefault("next_state", (dossier.get("offer") or {}).get("next_state") if isinstance(dossier.get("offer"), dict) else UNKNOWN)
+        context_status = context_status_of(dossier, extras, admission or {})
+        if context_status:
+            dossier["context_status"] = context_status
         dossier["unknown"] = _missing_commercial(dossier)
         reason = _validate(dossier)
         if reason:
@@ -1491,6 +1474,7 @@ def consume(
     fresh_reason = _check_freshness(dossier, now=now, extra_max_age_s=freshness_max_age_s)
     if fresh_reason:
         return _fail(fresh_reason, handraiser_id=dossier.get("handraiser_id"))
+    dossier.setdefault("context_status", "CURRENT")
 
     hid = _str(dossier.get("handraiser_id"))
     receipt = _receipt_of(dossier, doc)

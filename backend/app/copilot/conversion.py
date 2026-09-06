@@ -3,7 +3,8 @@
 Pure functions over dicts and transcript lines. No Codex, no whisper, no
 producer fetch, no CRM write, no calendar, no SMTP, no stage mutation.
 
-Commercial stage is read from the authority and never auto-changed.
+Commercial stage, offer and work family are opaque authority data and are never
+auto-changed or matched against a local catalogue.
 """
 from __future__ import annotations
 
@@ -28,39 +29,8 @@ NEXT_STEP_STATES = (
     "UNKNOWN",
 )
 
-COMMERCIAL_STAGES = ("DESCOBERTA", "ESCOPO", "PROPOSTA", "OBJECAO")
-WORK_KINDS = (
-    "DIAGNOSTICO",
-    "ANALISE_DOCUMENTAL",
-    "INSPECAO_CAMPO",
-    "ESCOPO",
-    "PROPOSTA",
-)
-
-WORK_KIND_LABELS = {
-    "DIAGNOSTICO": "diagnóstico — hipótese, não conclusão técnica",
-    "ANALISE_DOCUMENTAL": "análise documental — não substitui inspeção/campo",
-    "INSPECAO_CAMPO": "inspeção/campo — evidência in loco, não só papel",
-    "ESCOPO": "escopo — fronteira do trabalho, não é proposta dimensionada",
-    "PROPOSTA": "proposta dimensionada — exige escopo, insumos, capacidade e atribuição",
-}
-
-STAGE_CRITERIA = {
-    "DESCOBERTA": (
-        "sair com o problema, o papel do interlocutor e o próximo passo "
-        "de diagnóstico ou análise documental"
-    ),
-    "ESCOPO": "sair com fronteira de escopo, insumos e critério para proposta",
-    "PROPOSTA": "sair com aceite, recusa ou condição explícita — 'vou avaliar' não basta",
-    "OBJECAO": (
-        "sair com a objeção nomeada e o próximo passo que a desbloqueia, "
-        "ou recusa visível"
-    ),
-}
-
 CONVERSION_DISABLED = "CONVERSION_DISABLED"
 PLAN_SCHEMA_INVALID = "MEETING_PLAN_SCHEMA_INVALID"
-PLAN_STAGE_INVALID = "MEETING_PLAN_STAGE_INVALID"
 END_NOT_EXPLICIT = "END_NOT_EXPLICIT"
 
 CRM_SIDE_EFFECT_KEYS = (
@@ -78,30 +48,6 @@ TIAGO_FIELDS = (
     "insumos para proposta",
     "itens que impedem preço/prazo firme",
 )
-
-_STAGE_ALIASES = {
-    "descoberta": "DESCOBERTA",
-    "escopo": "ESCOPO",
-    "proposta": "PROPOSTA",
-    "objecao": "OBJECAO",
-    "objeção": "OBJECAO",
-    "objeção de preço": "OBJECAO",
-    "objecao de preco": "OBJECAO",
-}
-
-_KIND_ALIASES = {
-    "diagnostico": "DIAGNOSTICO",
-    "diagnóstico": "DIAGNOSTICO",
-    "analise documental": "ANALISE_DOCUMENTAL",
-    "análise documental": "ANALISE_DOCUMENTAL",
-    "inspecao/campo": "INSPECAO_CAMPO",
-    "inspeção/campo": "INSPECAO_CAMPO",
-    "inspecao campo": "INSPECAO_CAMPO",
-    "inspeção campo": "INSPECAO_CAMPO",
-    "campo": "INSPECAO_CAMPO",
-    "escopo": "ESCOPO",
-    "proposta": "PROPOSTA",
-}
 
 # Deliberation verbs: "I need to look at / talk about / take this somewhere"
 # before deciding. Note the list deliberately excludes delivery verbs
@@ -300,20 +246,18 @@ def _norm_stage(raw) -> str:
     s = _str(raw)
     if not s:
         return ""
-    if s.upper() == UNKNOWN:
-        return UNKNOWN
-    if s.upper() in COMMERCIAL_STAGES:
-        return s.upper()
-    return _STAGE_ALIASES.get(_fold(s), "")
+    # Authority-owned stage: normalise only its transport shape. New stages
+    # must not require a MeetCFG code change or local alias table.
+    token = re.sub(r"[^A-Z0-9]+", "_", _fold(s).upper()).strip("_")
+    return token[:64] if token else UNKNOWN
 
 
 def _norm_kind(raw) -> str:
     s = _str(raw)
     if not s:
         return ""
-    if s.upper() in WORK_KINDS:
-        return s.upper()
-    return _KIND_ALIASES.get(_fold(s), "")
+    token = re.sub(r"[^A-Z0-9]+", "_", _fold(s).upper()).strip("_")
+    return token[:64] if token else UNKNOWN
 
 
 def parse_meeting_plan(raw) -> tuple[dict | None, str]:
@@ -339,11 +283,6 @@ def parse_meeting_plan(raw) -> tuple[dict | None, str]:
 
     stage_raw = raw.get("commercial_stage") or raw.get("estagio") or raw.get("estágio")
     stage = _norm_stage(stage_raw)
-    if _str(stage_raw) and not stage:
-        return None, (
-            f"estágio comercial inválido ({stage_raw!r}); "
-            f"use um de: {', '.join(COMMERCIAL_STAGES)}"
-        )
     if not stage:
         stage = UNKNOWN
 
@@ -356,21 +295,28 @@ def parse_meeting_plan(raw) -> tuple[dict | None, str]:
     if not isinstance(roles, list):
         return None, "participant_roles deve ser uma lista"
     clean_roles = []
-    for r in roles:
+    for i, r in enumerate(roles):
         if isinstance(r, str) and r.strip():
             clean_roles.append({"name": UNKNOWN, "role": r.strip()})
         elif isinstance(r, dict):
+            for key in ("name", "role", "papel"):
+                if r.get(key) is not None and not isinstance(r.get(key), str):
+                    return None, f"participant_roles[{i}].{key} deve ser string ou null"
             clean_roles.append({
                 "name": _str(r.get("name")) or UNKNOWN,
                 "role": _str(r.get("role") or r.get("papel")) or UNKNOWN,
             })
+        else:
+            return None, f"participant_roles[{i}] deve ser string ou objeto"
     if not clean_roles:
         clean_roles = [{"name": UNKNOWN, "role": UNKNOWN}]
 
     def _str_list(key, *alts):
         for k in (key, *alts):
             v = raw.get(k)
-            if isinstance(v, list) and all(isinstance(x, str) for x in v):
+            if isinstance(v, list):
+                if not all(isinstance(x, str) for x in v):
+                    return None
                 return [x.strip() for x in v if x.strip()]
             if v is None:
                 continue
@@ -398,9 +344,68 @@ def parse_meeting_plan(raw) -> tuple[dict | None, str]:
         raw.get("advancement_criterion") or raw.get("criterio_avanco")
         or raw.get("critério_de_avanço")
     )
-    criterion_origin = "authority" if criterion else "stage_default"
+    criterion_origin = "authority" if criterion else "unknown"
     if not criterion:
-        criterion = STAGE_CRITERIA.get(stage, UNKNOWN)
+        criterion = UNKNOWN
+
+    raw_gaps = raw.get("gaps") or raw.get("lacunas")
+    gaps: list[dict] = []
+    if raw_gaps is not None:
+        if not isinstance(raw_gaps, list):
+            return None, "gaps deve ser uma lista"
+        for i, gap in enumerate(raw_gaps):
+            if not isinstance(gap, dict):
+                return None, f"gaps[{i}] deve ser um objeto"
+            gap_id = _str(gap.get("id"))
+            question = _str(gap.get("question") or gap.get("pergunta"))
+            status = _str(gap.get("status")).upper() or UNKNOWN
+            if not gap_id or not question:
+                return None, f"gaps[{i}] exige id e question"
+            if not isinstance(gap.get("blocking", True), bool):
+                return None, f"gaps[{i}].blocking deve ser booleano"
+            answer = _str(gap.get("answer") or gap.get("resposta")) or UNKNOWN
+            if status == "ANSWERED" and answer == UNKNOWN:
+                status = UNKNOWN
+            gaps.append({
+                "id": gap_id,
+                "question": question,
+                "status": status,
+                "answer": answer,
+                "blocking": gap.get("blocking", True),
+                "repeat_reason": _str(gap.get("repeat_reason")),
+            })
+    else:
+        answered_folded = {_fold(x) for x in answered}
+        for i, question in enumerate(unanswered):
+            gaps.append({
+                "id": f"question_{i + 1}",
+                "question": question,
+                "status": "ANSWERED" if _fold(question) in answered_folded else "OPEN",
+                "answer": UNKNOWN,
+                "blocking": True,
+                "repeat_reason": "",
+            })
+
+    repeat_reasons = raw.get("repeat_reasons")
+    if repeat_reasons is None:
+        repeat_reasons = {}
+    if not isinstance(repeat_reasons, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in repeat_reasons.items()
+    ):
+        return None, "repeat_reasons deve ser um objeto de strings"
+
+    constraints = _str_list("constraints", "limites")
+    if constraints is None:
+        return None, "constraints deve ser uma lista de strings"
+
+    offer = raw.get("offer") if isinstance(raw.get("offer"), dict) else {}
+    offer_id = _str(raw.get("offer_id") or offer.get("id")) or UNKNOWN
+    offer_family = _str(raw.get("offer_family") or offer.get("family")) or UNKNOWN
+    next_state = _str(
+        raw.get("next_state") or raw.get("proximo_estado") or offer.get("next_state")
+    ) or UNKNOWN
+    context_status = _str(raw.get("context_status")).upper() or UNKNOWN
+    firm_allowed = raw.get("firm_commitment_allowed") is True
 
     limited = stage == UNKNOWN or objective == UNKNOWN
     plan = {
@@ -410,14 +415,26 @@ def parse_meeting_plan(raw) -> tuple[dict | None, str]:
         "participant_roles": clean_roles,
         "unanswered_questions": unanswered,
         "answered_questions": answered,
+        "gaps": gaps,
+        "repeat_reasons": repeat_reasons,
         "evidence_to_confirm": evidence,
         "scope_limits": scope_limits,
         "conflict_limits": conflict_limits,
         "advancement_criterion": criterion,
         "advancement_criterion_origin": criterion_origin,
         "work_kind": kind,
-        "work_kind_label": WORK_KIND_LABELS.get(kind, UNKNOWN),
-        "limited": limited,
+        "work_kind_label": kind,
+        "offer_id": offer_id,
+        "offer_family": offer_family,
+        "next_state": next_state,
+        "acquisition_channel": _str(raw.get("acquisition_channel")) or UNKNOWN,
+        "conversation_channel": _str(raw.get("conversation_channel")) or UNKNOWN,
+        "situation": _str(raw.get("situation") or raw.get("situacao")) or UNKNOWN,
+        "intent": _str(raw.get("intent") or raw.get("intencao")) or UNKNOWN,
+        "constraints": constraints,
+        "context_status": context_status,
+        "firm_commitment_allowed": firm_allowed,
+        "limited": limited or context_status != "CURRENT",
     }
     return plan, ""
 
@@ -426,9 +443,50 @@ def meeting_plan_of(ctx: dict | None) -> tuple[dict | None, str]:
     if not isinstance(ctx, dict):
         return None, ""
     raw = ctx.get("meeting_plan")
-    if raw is None:
+    if raw is not None and not isinstance(raw, dict):
+        return parse_meeting_plan(raw)
+    offer = ctx.get("offer") if isinstance(ctx.get("offer"), dict) else {}
+    intent = ctx.get("intent") if isinstance(ctx.get("intent"), dict) else {}
+    projected = dict(raw or {})
+    projected.setdefault("schema", SCHEMA_MEETING_PLAN)
+    # Envelope safety wins over a nested plan. A stale/contradictory context
+    # cannot become CURRENT because a producer left an old plan attached.
+    if ctx.get("context_status") is not None:
+        projected["context_status"] = ctx.get("context_status")
+    for key, value in (
+        ("commercial_stage", ctx.get("commercial_stage") or ctx.get("stage")),
+        ("objective", ctx.get("objective")),
+        ("participant_roles", ctx.get("participant_roles")),
+        ("gaps", ctx.get("gaps")),
+        ("advancement_criterion", ctx.get("advancement_criterion")),
+        ("next_state", ctx.get("next_state") or offer.get("next_state")),
+        ("offer_id", offer.get("id")),
+        ("offer_family", offer.get("family")),
+        ("acquisition_channel", ctx.get("acquisition_channel")),
+        ("conversation_channel", ctx.get("conversation_channel")),
+        ("situation", ctx.get("situation") or ctx.get("situacao")),
+        ("intent", intent.get("kind") or ctx.get("intention")),
+        ("constraints", ctx.get("constraints") or ctx.get("limits")),
+        ("conflict_limits", ctx.get("conflicts")),
+        ("context_status", ctx.get("context_status")),
+    ):
+        current = projected.get(key)
+        missing = current in (None, "", UNKNOWN) or current == [] or current == {}
+        incoming_known = value not in (None, "", UNKNOWN) and value != [] and value != {}
+        if missing and incoming_known:
+            projected[key] = value
+    # A truly empty context keeps the old manual-mode seam.
+    meaningful = [v for k, v in projected.items() if k != "schema" and v not in (None, "", [], {})]
+    explicit_partial = any(
+        key in ctx for key in (
+            "acquisition_channel", "conversation_channel", "context_status",
+            "situation", "situacao", "intent", "objective", "gaps",
+            "advancement_criterion", "next_state", "offer",
+        )
+    )
+    if raw is None and not meaningful and not explicit_partial:
         return None, ""
-    return parse_meeting_plan(raw)
+    return parse_meeting_plan(projected)
 
 
 def questions_to_ask(plan: dict | None, answered: list[str] | None = None) -> list[str]:
@@ -439,7 +497,20 @@ def questions_to_ask(plan: dict | None, answered: list[str] | None = None) -> li
     repeat_reasons = plan.get("repeat_reasons") if isinstance(plan.get("repeat_reasons"), dict) else {}
     out: list[str] = []
     seen: set[str] = set()
-    for q in plan.get("unanswered_questions") or []:
+    planned_questions = []
+    for gap in plan.get("gaps") or []:
+        if not isinstance(gap, dict):
+            continue
+        if _str(gap.get("status")).upper() == "ANSWERED" and not _str(gap.get("repeat_reason")):
+            continue
+        q = _str(gap.get("question"))
+        if q:
+            planned_questions.append(q)
+            if _str(gap.get("repeat_reason")):
+                repeat_reasons[q] = _str(gap.get("repeat_reason"))
+    if not (plan.get("gaps") or []):
+        planned_questions = list(plan.get("unanswered_questions") or [])
+    for q in planned_questions:
         if not isinstance(q, str) or not q.strip():
             continue
         key = _fold(q)
@@ -453,6 +524,32 @@ def questions_to_ask(plan: dict | None, answered: list[str] | None = None) -> li
     return out
 
 
+def advancement_readiness(
+    plan: dict | None, answered: list[str] | None = None,
+) -> tuple[bool, list[str]]:
+    """Generic objective/gap/criterion gate; never branches on offer or stage."""
+    if not isinstance(plan, dict):
+        return False, ["plano UNKNOWN"]
+    blockers: list[str] = []
+    if _str(plan.get("objective")) in ("", UNKNOWN):
+        blockers.append("objetivo UNKNOWN")
+    if _str(plan.get("advancement_criterion")) in ("", UNKNOWN):
+        blockers.append("critério de avanço UNKNOWN")
+    if _str(plan.get("next_state")) in ("", UNKNOWN):
+        blockers.append("próximo estado UNKNOWN")
+    status = _str(plan.get("context_status")).upper()
+    if status != "CURRENT":
+        blockers.append(f"contexto {status or UNKNOWN}")
+    answered_folded = {_fold(x) for x in (answered or []) if _str(x)}
+    for gap in plan.get("gaps") or []:
+        if not isinstance(gap, dict) or gap.get("blocking") is False:
+            continue
+        question_answered = _fold(gap.get("question") or "") in answered_folded
+        if _str(gap.get("status")).upper() != "ANSWERED" and not question_answered:
+            blockers.append(f"lacuna aberta: {_str(gap.get('id')) or UNKNOWN}")
+    return not blockers, blockers
+
+
 def _role_known(plan: dict | None) -> bool:
     if not isinstance(plan, dict):
         return False
@@ -463,51 +560,18 @@ def _role_known(plan: dict | None) -> bool:
 
 
 def firm_price_deadline_blockers(plan: dict | None, state: dict | None) -> list[str]:
-    """Without confirmed scope, inputs, capacity and attribution, no firm promise."""
-    blockers: list[str] = []
-    state = state or empty_state()
-    live = [i for i in state.get("board") or [] if i.get("state") == "MUTUALLY_CONFIRMED"]
-    stage = (plan or {}).get("commercial_stage") if isinstance(plan, dict) else UNKNOWN
-    kind = (plan or {}).get("work_kind") if isinstance(plan, dict) else UNKNOWN
+    """Fail closed unless the received plan explicitly permits a firm promise.
 
-    scope_ok = False
-    inputs_ok = False
-    capacity_ok = False
-    attrib_ok = False
-    for item in live:
-        action = _fold(item.get("action") or "")
-        if "escopo" in action or item.get("scope_confirmed") is True:
-            scope_ok = True
-        if _str(item.get("input")) not in ("", UNKNOWN):
-            inputs_ok = True
-        if _str(item.get("owner")) not in ("", UNKNOWN):
-            attrib_ok = True
-        if item.get("capacity_confirmed") is True:
-            capacity_ok = True
-    if isinstance(plan, dict) and plan.get("scope_confirmed") is True:
-        scope_ok = True
-    if isinstance(plan, dict) and _str_list_nonempty(plan.get("evidence_to_confirm")) is False:
-        # evidence still to confirm means inputs not done
-        pass
-    if kind in ("DIAGNOSTICO", "ANALISE_DOCUMENTAL", "INSPECAO_CAMPO") or stage == "DESCOBERTA":
-        if not scope_ok:
-            blockers.append("escopo não confirmado")
-        if not inputs_ok:
-            blockers.append("insumos não confirmados")
-        if not capacity_ok:
-            blockers.append("capacidade não confirmada")
-        if not attrib_ok:
-            blockers.append("atribuição não confirmada")
-        return blockers
-    if not scope_ok:
-        blockers.append("escopo não confirmado")
-    if not inputs_ok:
-        blockers.append("insumos não confirmados")
-    if not capacity_ok:
-        blockers.append("capacidade não confirmada")
-    if not attrib_ok:
-        blockers.append("atribuição não confirmada")
-    return blockers
+    The gate is deliberately offer/stage agnostic.  The authority declares the
+    missing facts as gaps and opts in only after price, deadline, capacity and
+    attribution have actually been checked.
+    """
+    answered = list((state or {}).get("answered_questions") or []) \
+        if isinstance(state, dict) else []
+    _ready, blockers = advancement_readiness(plan, answered)
+    if not isinstance(plan, dict) or plan.get("firm_commitment_allowed") is not True:
+        blockers.append("preço/prazo firme não autorizado pelo contexto")
+    return list(dict.fromkeys(blockers))
 
 
 def _str_list_nonempty(v) -> bool:
@@ -535,6 +599,11 @@ def render_plan_for_prompt(plan: dict | None, *, answered: list[str] | None = No
         f"Objetivo único desta reunião: {plan.get('objective') or UNKNOWN}",
         f"Tipo de trabalho: {plan.get('work_kind_label') or plan.get('work_kind') or UNKNOWN}",
         f"Critério de avanço: {plan.get('advancement_criterion') or UNKNOWN}",
+        f"Próximo estado possível: {plan.get('next_state') or UNKNOWN}",
+        f"Oferta opaca: {plan.get('offer_id') or UNKNOWN}",
+        f"Família opaca: {plan.get('offer_family') or UNKNOWN}",
+        f"Canal de aquisição: {plan.get('acquisition_channel') or UNKNOWN}",
+        f"Canal da conversa: {plan.get('conversation_channel') or UNKNOWN}",
     ]
     roles = []
     for r in plan.get("participant_roles") or []:
@@ -555,15 +624,19 @@ def render_plan_for_prompt(plan: dict | None, *, answered: list[str] | None = No
     if limits:
         parts.append("Limites de escopo e conflito:")
         parts.extend(f"- {x}" for x in limits)
+    ready, blockers = advancement_readiness(plan, answered)
+    parts.append("Pronto para avançar: " + ("sim" if ready else "não"))
+    if blockers:
+        parts.append("Bloqueios de avanço: " + "; ".join(blockers))
     parts.append(
-        "Distinção obrigatória: diagnóstico ≠ conclusão técnica; "
-        "análise documental ≠ inspeção/campo; escopo ≠ proposta dimensionada."
+        "Use somente o contexto recebido: hipótese/análise não vira conclusão, "
+        "hesitação não vira aceite e escopo não vira proposta ou contratação."
     )
     if plan.get("limited"):
         parts.append("Contexto incompleto: modo limitado/manual.")
     parts.append(
-        "Sem escopo, insumos, capacidade e atribuição confirmados, "
-        "não sugira preço, prazo ou entrega assinada firme."
+        "Sem autorização explícita e fatos confirmados no plano, não sugira "
+        "produto, preço, prazo, capacidade, ART, atribuição ou entrega firme."
     )
     return "\n".join(parts)
 
@@ -726,11 +799,64 @@ def _extract_owner(low: str, role: str) -> str:
     return UNKNOWN
 
 
-def _extract_commitment(text: str, role: str) -> dict | None:
+_ACTION_STOPWORDS = {
+    "agora", "ainda", "amanha", "com", "como", "desta", "deste", "estado",
+    "fazer", "para", "passo", "pode", "posso", "proximo", "seguinte",
+    "sera", "vamos", "voce",
+}
+
+
+def _matches_authority_action(text: str, next_state: str) -> bool:
+    """Conservative lexical link; false negatives are safer than invented close."""
+    def tokens(value: str) -> set[str]:
+        return {
+            word for word in re.findall(r"[a-z0-9]{4,}", _fold(value))
+            if word not in _ACTION_STOPWORDS
+        }
+
+    expected = tokens(next_state)
+    heard = tokens(text)
+    if not expected:
+        return False
+    required = 1 if len(expected) == 1 else 2
+    return len(expected & heard) >= required
+
+
+def _generic_spoken_action(text: str, next_state: str) -> str:
+    """Keep the human verb plus shared target nouns; never relabel as outcome."""
+    heard = re.findall(r"[a-z0-9]{4,}", _fold(text))
+    expected = {
+        word for word in re.findall(r"[a-z0-9]{4,}", _fold(next_state))
+        if word not in _ACTION_STOPWORDS
+    }
+    aux = {"consigo", "irei", "posso", "vamos", "voce"}
+    verb = ""
+    for word in heard:
+        if word in aux or word in expected or word in _ACTION_STOPWORDS:
+            continue
+        verb = word
+        break
+    shared: list[str] = []
+    for word in heard:
+        if word in expected and word not in shared:
+            shared.append(word)
+    return " ".join(([verb] if verb else []) + shared)[:80]
+
+
+def _extract_commitment(text: str, role: str, plan: dict | None = None) -> dict | None:
     # Legacy direct callers may still pass mic|system. Normalize at the seam;
     # the conversion implementation below only reasons about roles.
     role = normalize_role(role) or ""
     low = _fold(text)
+    # Mentioning a commercial object while rejecting/contesting it is not a
+    # commitment about that object. Keep the disagreement as transcript data;
+    # never relabel it as a close.
+    if re.search(
+        r"\b(discord\w*|rejeit\w*|contest\w*|question\w*|"
+        r"nao\s+(?:concord\w*|aceit\w*))\b",
+        low,
+    ):
+        return None
     action = ""
     input_ = UNKNOWN
     if (
@@ -770,6 +896,16 @@ def _extract_commitment(text: str, role: str) -> dict | None:
     elif "proposta" in low and not _negated(low, "proposta"):
         action = "tratar proposta"
         input_ = "proposta"
+    elif (
+        isinstance(plan, dict)
+        and _str(plan.get("next_state")) not in ("", UNKNOWN)
+        and classify_utterance(text) == UTT_COMMIT
+        and _matches_authority_action(text, _str(plan.get("next_state")))
+    ):
+        # Unknown offers still need a next-step board.  A first-person human
+        # commitment can use the authority-provided next state as its action;
+        # MeetCFG does not need a noun/offer dictionary to understand it.
+        action = _generic_spoken_action(text, _str(plan.get("next_state")))
     if not action:
         return None
     window = _extract_window(text) or UNKNOWN
@@ -911,7 +1047,17 @@ def _absorb_answers(state: dict, plan: dict | None, text: str, role: str) -> Non
     low = _fold(text)
     if len(low) < 8:
         return
-    for q in plan.get("unanswered_questions") or []:
+    if re.search(
+        r"\b(?:nao sei|desconheco|nao tenho essa informacao|sem informacao|"
+        r"nao posso responder|nao ficou claro)\b",
+        low,
+    ):
+        return
+    questions = list(plan.get("unanswered_questions") or [])
+    for gap in plan.get("gaps") or []:
+        if isinstance(gap, dict) and _str(gap.get("question")):
+            questions.append(_str(gap.get("question")))
+    for q in dict.fromkeys(questions):
         qf = _fold(q)
         # A lead reply after a question was asked counts when it is substantive
         # and not itself a question. Matching uses overlapping keywords.
@@ -977,7 +1123,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
         _refresh_pending_questions(state)
         return state
 
-    extracted = _extract_commitment(text, role)
+    extracted = _extract_commitment(text, role, plan)
     confirmed_now = bool(_CONFIRM_RE.search(low))
 
     if extracted:
@@ -1026,7 +1172,7 @@ def observe_line(state: dict | None, line, plan: dict | None = None,
             # Merge what the confirming line carries BEFORE the gate runs:
             # "combinado, você envia até sexta" supplies the owner and window
             # the promotion rule requires.
-            extra = _extract_commitment(text, role) or {}
+            extra = _extract_commitment(text, role, plan) or {}
             if extra:
                 _merge_fields(pending, extra)
             win = _extract_window(text)
@@ -1134,6 +1280,7 @@ def operational_output(plan: dict | None, state: dict | None, *,
         confirmed = None
 
     blockers = firm_price_deadline_blockers(plan, state)
+    advancement_ready, advancement_blockers = advancement_readiness(plan, answered)
     stage = (plan or {}).get("commercial_stage") if isinstance(plan, dict) else UNKNOWN
     objective = (plan or {}).get("objective") if isinstance(plan, dict) else UNKNOWN
     kind = (plan or {}).get("work_kind_label") if isinstance(plan, dict) else UNKNOWN
@@ -1186,11 +1333,15 @@ def operational_output(plan: dict | None, state: dict | None, *,
         "proximo_passo_confirmado": passo_txt,
         "insumos_para_proposta": insumos,
         "bloqueios_preco_prazo": blockers,
+        "advancement_ready": advancement_ready,
+        "advancement_blockers": advancement_blockers,
         "resumo factual": resumo,
         "decisão alcançada/não alcançada": decisao,
         "próximo passo confirmado": passo_txt,
         "insumos para proposta": insumos,
         "itens que impedem preço/prazo firme": blockers,
+        "pronto para avançar": advancement_ready,
+        "bloqueios de avanço": advancement_blockers,
         "commercial_stage": stage or UNKNOWN,
         "work_kind": (plan or {}).get("work_kind") if isinstance(plan, dict) else UNKNOWN,
     }

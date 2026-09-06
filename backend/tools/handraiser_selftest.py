@@ -35,8 +35,7 @@ from app.copilot.engine import (  # noqa: E402
 from app.copilot.handraiser import (  # noqa: E402
     CONSUMER_DISABLED, FRESHNESS_INVALID, FRESHNESS_STALE, IDENTITY_CONFLICT,
     GOVERNANCE_AUTHORITY, GOVERNANCE_POLICY_HASH, MALFORMED,
-    MISSING_CONFLICT_CLEARANCE, MISSING_IDENTITY, NUCLEI,
-    NUCLEUS_LABELS, NUCLEUS_UNKNOWN, OFFER_CANDIDATE, OUTBOUND_NOT_ELIGIBLE,
+    MISSING_CONFLICT_CLEARANCE, MISSING_IDENTITY, OUTBOUND_NOT_ELIGIBLE,
     OVERSIZED, PIN_HASH,
     PINNED_CONTRACTS, PRODUCER_ERROR, PRODUCER_NOT_CONFIGURED,
     PRODUCER_TIMEOUT, PRODUCER_UNAUTHORIZED, REJECTED_WITH_REASON,
@@ -233,12 +232,13 @@ def test_accepted():
           False)
     check("pin schema", result.conversation.get("schema"), SCHEMA_CONTEXT)
     check("pin hash", result.conversation.get("schema_hash"), EXPECTED_PIN_HASH)
-    check("nucleus public_works label", result.conversation.get("nucleo"),
-          "Obras públicas (B2G)")
+    check("opaque nucleus preserved", result.conversation.get("nucleo"),
+          payload["nucleus_id"])
     check("resumo is not the technical id",
           result.conversation.get("resumo") == result.handraiser_id, False)
     check("source lane", result.conversation.get("source"), SOURCE_LANE)
-    check("offer candidate", result.conversation.get("offer_candidate"), OFFER_CANDIDATE)
+    check("offer candidate", result.conversation.get("offer_candidate"),
+          payload["offer_candidate"])
     check("outbound_eligible false", result.conversation.get("outbound_eligible"), False)
     check("auto_send false", result.conversation.get("auto_send"), False)
     check("no CRM keys on dossier", crm_side_effect_keys(result.dossier), [])
@@ -258,13 +258,13 @@ def test_multivertical_nuclei():
         result = consume(payload, store=store, now=NOW, bind_session=False)
         check(f"{nucleus} ok", result.ok, True)
         check(f"{nucleus} session", bool(result.session_id), True)
-        check(f"{nucleus} id in NUCLEI", nucleus in NUCLEI, True)
-        check(f"{nucleus} label", result.conversation.get("nucleo"), NUCLEUS_LABELS[nucleus])
+        check(f"{nucleus} opaque id preserved", result.conversation.get("nucleo"), nucleus)
         check(f"{nucleus} resumo present", bool(result.conversation.get("resumo")), True)
         check(f"{nucleus} resumo is not id",
               result.conversation.get("resumo") == result.handraiser_id, False)
         check(f"{nucleus} source", result.conversation.get("source"), SOURCE_LANE)
-        check(f"{nucleus} offer", result.conversation.get("offer_candidate"), OFFER_CANDIDATE)
+        check(f"{nucleus} offer", result.conversation.get("offer_candidate"),
+              payload["offer_candidate"])
         check(f"{nucleus} conflict visible as class",
               result.conversation.get("conflict_status") in ("CLEAR", "RESTRICTED"), True)
         check(f"{nucleus} UNKNOWN list is a list",
@@ -282,6 +282,21 @@ def test_multivertical_nuclei():
         seen_sessions.add(result.session_id)
     check("five distinct logical sessions", len(seen_sessions), 5)
     check("store size 5", len(store), 5)
+
+
+def test_opaque_offer_and_nucleus():
+    print("unknown offer/nucleus are opaque data; absent asset stays UNKNOWN")
+    payload = load_fx("unknown_nucleus.json")
+    payload["offer_candidate"] = "synthetic_flux_capacitor_audit"
+    payload.pop("private_asset", None)
+    result = consume(payload, store=ReceiptStore(), now=NOW, bind_session=False)
+    check("opaque taxonomy accepted", result.ok, True)
+    check("opaque nucleus retained", result.conversation.get("nucleo"),
+          payload["nucleus_id"])
+    check("opaque offer retained", result.conversation.get("offer_candidate"),
+          payload["offer_candidate"])
+    check("missing private asset not invented", result.dossier.get("private_asset"),
+          "UNKNOWN")
 
 
 def test_inbound_only_net_new():
@@ -448,7 +463,6 @@ def test_fail_closed():
         ("missing_hash.json", SCHEMA_UNPINNED),
         ("pin_mismatch.json", SCHEMA_PIN_MISMATCH),
         ("missing_conflict.json", MISSING_CONFLICT_CLEARANCE),
-        ("unknown_nucleus.json", NUCLEUS_UNKNOWN),
     ):
         store = ReceiptStore()
         result = consume(load_fx(name), store=store, now=NOW, bind_session=True)
@@ -860,7 +874,7 @@ def test_http(label: str, out_path: str | None = None) -> dict:
     check("http intent in body", body.get("intencao"), "REQUEST_DEEP_DIVE")
     check("http next state in body", body.get("proximo_estado_comercial"),
           "fechar o escopo do primeiro ciclo")
-    check("http nucleo", body.get("nucleo"), "Obras públicas (B2G)")
+    check("http opaque nucleus", body.get("nucleo"), accepted["nucleus_id"])
     check("http resumo present", bool(body.get("resumo")), True)
     check("http resumo is not id", body.get("resumo") == body.get("handraiser_id"), False)
     check("http session id present", bool(body.get("session_id")), True)
@@ -1006,6 +1020,7 @@ def main(argv: list[str] | None = None) -> int:
             test_classify_and_collection_collision,
             test_accepted,
             test_multivertical_nuclei,
+            test_opaque_offer_and_nucleus,
             test_inbound_only_net_new,
             test_native_warmbly_readback,
             test_fail_closed,
@@ -1032,6 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
         test_classify_and_collection_collision,
         test_accepted,
         test_multivertical_nuclei,
+        test_opaque_offer_and_nucleus,
         test_inbound_only_net_new,
         test_native_warmbly_readback,
         test_fail_closed,

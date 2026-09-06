@@ -37,6 +37,7 @@ jobs:
           python backend/tools/transformation_selftest.py
           python backend/tools/handraiser_selftest.py
           python backend/tools/conversion_selftest.py
+          python backend/tools/offer_agnostic_selftest.py
       - name: Secret / PII fixture guard
         run: |
           set -e

@@ -1,0 +1,59 @@
+{
+  "schema": "CONFENGE_SALES_CONTEXT/1.0",
+  "acquisition_channel": "PARTNER",
+  "conversation_channel": "phone",
+  "context_status": "CURRENT",
+  "company": {"name": "Laboratório Horizonte", "cnpj": null},
+  "situation": "parceiro apresentou uma necessidade técnica ainda sem categoria",
+  "intent": {"kind": "entender se vale uma análise inicial", "reply_reason": null},
+  "offer": {
+    "id": "synthetic_flux_capacitor_audit",
+    "family": "unregistered_future_family",
+    "current": "auditoria sintética de fluxo",
+    "next_state": "receber uma amostra anonimizada para análise"
+  },
+  "source_as_of": "2026-09-05",
+  "provenance": "indicação registrada pelo parceiro",
+  "citable_facts": [
+    {
+      "claim": "o parceiro apresentou as duas partes",
+      "source": "registro da indicação",
+      "source_as_of": "2026-09-05"
+    }
+  ],
+  "claim_safety": {
+    "never_assert": [
+      "não afirmar capacidade, preço, prazo, entrega ou atribuição profissional"
+    ],
+    "safe_to_reference": []
+  },
+  "meeting_plan": {
+    "schema": "MEETCFG_MEETING_PLAN/1.0",
+    "commercial_stage": "NEXT_STEP",
+    "objective": "validar se uma amostra permite a análise inicial",
+    "work_kind": "OPAQUE_FUTURE_WORK",
+    "participant_roles": [{"name": "UNKNOWN", "role": "UNKNOWN"}],
+    "gaps": [
+      {
+        "id": "sample_authorization",
+        "question": "A amostra pode ser compartilhada de forma anonimizada?",
+        "status": "OPEN",
+        "blocking": true
+      },
+      {
+        "id": "decision_role",
+        "question": "Quem autoriza a análise inicial?",
+        "status": "ANSWERED",
+        "answer": "a gerente de operações",
+        "blocking": true
+      }
+    ],
+    "advancement_criterion": "sair com autorização e forma de envio da amostra",
+    "next_state": "amostra anonimizada disponível para análise",
+    "firm_commitment_allowed": false
+  },
+  "lines": [
+    {"source": "system", "text": "Posso disponibilizar a amostra anonimizada amanhã."},
+    {"source": "mic", "text": "Combinado, você disponibiliza a amostra anonimizada amanhã."}
+  ]
+}
