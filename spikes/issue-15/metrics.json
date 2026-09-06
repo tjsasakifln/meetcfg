@@ -1,0 +1,114 @@
+{
+  "schema": "MEETCFG_PHONE_SPIKE_METRICS/1.0",
+  "issue": 15,
+  "parent_issue": 13,
+  "observed_at": "2026-09-05T22:46:17-03:00",
+  "decision": "NO_GO",
+  "terminal_reason_code": "NO_GO_INSUFFICIENT_REAL_WINDOWS_EVIDENCE",
+  "environment": {
+    "windows": {
+      "caption": "Microsoft Windows 11 Home Single Language",
+      "version": "10.0.26200",
+      "build": 26200
+    },
+    "wsl": "WSL2",
+    "phone_link": {
+      "package": "Microsoft.YourPhone",
+      "version": "1.26071.164.0",
+      "process_started": true
+    },
+    "browsers": {
+      "edge": "152.0.4191.62",
+      "chrome": "152.0.7977.76"
+    }
+  },
+  "device_observations": {
+    "active_endpoint_counts": [2, 4, 2],
+    "hands_free_profile_observed": true,
+    "real_headset_use_verified_during_call": false,
+    "device_switch_recovery_verified": false,
+    "device_names_or_ids_recorded": false
+  },
+  "experiment_1_browser": {
+    "secure_context": true,
+    "get_user_media": true,
+    "get_display_media": true,
+    "audio_worklet_node": true,
+    "capture_controller": true,
+    "echo_cancellation_constraint": true,
+    "noise_suppression_constraint": true,
+    "sample_rate_constraint": true,
+    "completed_user_capture_grant_observed": false,
+    "returned_mic_track_count": null,
+    "returned_counterparty_track_count": null,
+    "real_call_executed": false,
+    "reason_code": "BROWSER_CAPTURE_GRANT_NOT_OBSERVED"
+  },
+  "experiment_2_wasapi": {
+    "process_loopback_minimum_build": 20348,
+    "host_build_eligible": true,
+    "phone_link_render_stream_active_at_measurement": false,
+    "live_capture_executed": false,
+    "returned_pcm_frames": null,
+    "reason_code": "WASAPI_LIVE_CAPTURE_NOT_EXECUTED"
+  },
+  "experiment_3_helper": {
+    "capture_helper_implemented": false,
+    "preflight_only_helper_versioned": true,
+    "reason_code": "CAPTURE_HELPER_DEFERRED_BY_SEQUENCE"
+  },
+  "component_checks_not_real_call_evidence": {
+    "whisper": {
+      "model": "tiny",
+      "device": "cpu",
+      "compute_type": "int8",
+      "input": "two_seconds_generated_silence_in_memory",
+      "output_text_length": 0,
+      "latency_ms_including_model_load": 6605
+    },
+    "echo_selftest_exit": 0,
+    "parser_selftest_exit": 0,
+    "codex_bridge": {
+      "result": "CORRECT_SILENCE",
+      "latency_ms": 11596,
+      "api_key_used": false,
+      "ephemeral": true
+    },
+    "whisper_small_initial_warmup": {
+      "ready": false,
+      "observed_ms_lower_bound": 218000,
+      "reason_code": "WHISPER_SMALL_MODEL_WARMUP_STALLED"
+    },
+    "whisper_tiny_snapshot_download_ms": 208000
+  },
+  "real_gate": {
+    "operator_headset": "NOT_TESTED_IN_CALL",
+    "cellular_sim": "NOT_TESTED",
+    "operator_counterparty_separated": "NOT_TESTED",
+    "pcm_compatible_with_issue_14": "COMPONENT_CONTRACT_ONLY",
+    "whisper_two_sides": "NOT_TESTED",
+    "echo_false_interlocutor": "NOT_TESTED_REAL",
+    "codex_real_call_advice_or_silence": "NOT_TESTED",
+    "cold_start_1": "NOT_RUN_NO_REAL_CALL",
+    "cold_start_2": "NOT_RUN_NO_REAL_CALL",
+    "cold_start_3": "NOT_RUN_NO_REAL_CALL"
+  },
+  "latency_summary": {
+    "capture_to_transcription_ms": null,
+    "transcription_to_advice_ms": null,
+    "loss_recovery_ms": null,
+    "component_only_whisper_silence_ms": 6605,
+    "component_only_codex_silence_ms": 11596
+  },
+  "privacy": {
+    "persisted_audio": false,
+    "persisted_transcription": false,
+    "versioned_person_name": false,
+    "versioned_phone_number": false,
+    "versioned_call_content": false,
+    "stt_cloud": false,
+    "paid_api": false,
+    "openai_sdk": false,
+    "api_key": false
+  }
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MeetCFG #15 browser API preflight</title>
+<pre id="result">pending</pre>
+<script>
+// Serve from localhost. This checks API exposure only; it never requests,
+// captures, stores, sends or plays audio/video.
+const mediaDevices = navigator.mediaDevices;
+const supported = mediaDevices?.getSupportedConstraints?.() || {};
+const result = {
+  schema: "MEETCFG_PHONE_SPIKE_BROWSER_PREFLIGHT/1.0",
+  userAgent: navigator.userAgent,
+  secureContext: window.isSecureContext,
+  mediaDevices: Boolean(mediaDevices),
+  getUserMedia: typeof mediaDevices?.getUserMedia,
+  getDisplayMedia: typeof mediaDevices?.getDisplayMedia,
+  audioWorkletNode: typeof window.AudioWorkletNode,
+  captureController: typeof window.CaptureController,
+  supportedAudioConstraints: {
+    autoGainControl: Boolean(supported.autoGainControl),
+    channelCount: Boolean(supported.channelCount),
+    echoCancellation: Boolean(supported.echoCancellation),
+    noiseSuppression: Boolean(supported.noiseSuppression),
+    sampleRate: Boolean(supported.sampleRate),
+    sampleSize: Boolean(supported.sampleSize),
+    suppressLocalAudioPlayback: Boolean(supported.suppressLocalAudioPlayback),
+  },
+  privacy: {
+    captureRequested: false,
+    audioRead: false,
+    transcriptRead: false,
+  },
+};
+document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+</script>
